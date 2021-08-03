@@ -1,4 +1,4 @@
-package org.opencord.olt;
+package org.opencord.olt.impl;
 
 import org.onosproject.net.Device;
 import org.onosproject.net.Port;

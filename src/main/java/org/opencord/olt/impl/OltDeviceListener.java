@@ -1,4 +1,4 @@
-package org.opencord.olt;
+package org.opencord.olt.impl;
 
 import org.onosproject.net.Device;
 import org.onosproject.net.Port;
@@ -11,10 +11,10 @@ import java.util.concurrent.BlockingQueue;
 
 public class OltDeviceListener  implements DeviceListener {
     private final Logger log = LoggerFactory.getLogger(getClass());
-    private final OltDeviceInterface oltDevice;
+    private final OltDeviceServiceInterface oltDevice;
     private final BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue;
 
-    public OltDeviceListener(OltDeviceInterface oltDevice, BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue) {
+    public OltDeviceListener(OltDeviceServiceInterface oltDevice, BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue) {
         this.discoveredSubscribersQueue = discoveredSubscribersQueue;
         this.oltDevice = oltDevice;
     }
@@ -52,6 +52,7 @@ public class OltDeviceListener  implements DeviceListener {
             } else {
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port, DiscoveredSubscriber.Status.ADDED, false);
                 if (!discoveredSubscribersQueue.contains(sub)) {
+                    log.info("Adding subscriber to queue: {}", sub);
                     discoveredSubscribersQueue.add(sub);
                 }
             }
@@ -62,6 +63,7 @@ public class OltDeviceListener  implements DeviceListener {
             } else {
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port, DiscoveredSubscriber.Status.REMOVED, false);
                 if (!discoveredSubscribersQueue.contains(sub)) {
+                    log.info("Adding subscriber to queue: {}", sub);
                     discoveredSubscribersQueue.add(sub);
                 }
             }

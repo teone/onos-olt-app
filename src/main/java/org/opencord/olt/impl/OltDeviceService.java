@@ -1,6 +1,5 @@
-package org.opencord.olt;
+package org.opencord.olt.impl;
 
-import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.Device;
 import org.onosproject.net.Port;
 import org.opencord.sadis.BandwidthProfileInformation;
@@ -11,10 +10,10 @@ import org.slf4j.Logger;
 
 import static org.slf4j.LoggerFactory.getLogger;
 
-public class OltDeviceService implements OltDeviceInterface {
+public class OltDeviceService implements OltDeviceServiceInterface {
 
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
-    private BaseInformationService<BandwidthProfileInformation> bpService;
+    protected BaseInformationService<BandwidthProfileInformation> bpService;
     private final Logger log = getLogger(getClass());
 
     private static final String NNI = "nni-";

@@ -1,12 +1,14 @@
-package org.opencord.olt;
+package org.opencord.olt.impl;
 
 import org.onosproject.net.*;
+import org.opencord.olt.impl.OltDeviceServiceInterface;
+import org.opencord.sadis.SadisService;
 
 public class OltTestHelpers {
 
     public static String NNI_PREFIX = "nni-";
 
-    protected class MockOltDeviceService implements OltDeviceInterface {
+    protected class MockOltDeviceServiceService implements OltDeviceServiceInterface {
 
         public boolean isOlt(Device device) {
             return device.type().equals(Device.Type.OLT);
@@ -15,6 +17,12 @@ public class OltTestHelpers {
         public boolean isNniPort(Device device, Port port) {
             return port.annotations().value(AnnotationKeys.PORT_NAME).startsWith(NNI_PREFIX);
         }
+
+        @Override
+        public void bindSadisService(SadisService service) {}
+
+        @Override
+        public void unbindSadisService() {}
     }
 
     protected class OltPort implements Port {

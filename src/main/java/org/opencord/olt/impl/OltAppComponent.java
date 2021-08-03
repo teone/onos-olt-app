@@ -13,7 +13,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package org.opencord.olt;
+package org.opencord.olt.impl;
 
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.net.device.DeviceListener;
@@ -26,11 +26,10 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Dictionary;
 import java.util.Properties;
-import java.util.concurrent.BlockingDeque;
-import java.util.concurrent.BlockingQueue;
-import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.*;
 
 import static org.onlab.util.Tools.get;
+import static org.onlab.util.Tools.groupedThreads;
 
 /**
  * OLT Application
@@ -55,18 +54,22 @@ public class OltAppComponent {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
-    private OltDeviceService oltDevice = new OltDeviceService();
+    private OltDeviceServiceInterface oltDevice = new OltDeviceService();
+    private OltFlowServiceInterface oltFlowService = new OltFlowService();
 
     protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
-    private final DeviceListener deviceListener = new OltDeviceListener(oltDevice, (BlockingDeque<DiscoveredSubscriber>) discoveredSubscribersQueue);
-
+    private DeviceListener deviceListener;
+    protected ScheduledExecutorService discoveredSubscriberExecutor = Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
+            "discovered-cp-%d", log));
 
     private String someProperty;
 
     @Activate
     protected void activate() {
         cfgService.registerProperties(getClass());
+        deviceListener = new OltDeviceListener(oltDevice, discoveredSubscribersQueue);
         deviceService.addListener(deviceListener);
+        discoveredSubscriberExecutor.execute(this::processDiscoveredSubscribers);
         log.info("Started");
     }
 
@@ -74,6 +77,7 @@ public class OltAppComponent {
     protected void deactivate() {
         cfgService.unregisterProperties(getClass(), false);
         deviceService.removeListener(deviceListener);
+        discoveredSubscriberExecutor.shutdown();
         log.info("Stopped");
     }
 
@@ -85,6 +89,7 @@ public class OltAppComponent {
         }
         log.info("Reconfigured");
     }
+
     protected void bindSadisService(SadisService service) {
         oltDevice.bindSadisService(service);
         sadisService = service;
@@ -95,5 +100,39 @@ public class OltAppComponent {
         sadisService = null;
     }
 
+    private void processDiscoveredSubscribers() {
+        log.info("Started processDiscoveredSubscribers loop");
+        while (true) {
+            if (!discoveredSubscribersQueue.isEmpty()) {
+                DiscoveredSubscriber sub = discoveredSubscribersQueue.peek();
 
+                if (sub.status == DiscoveredSubscriber.Status.ADDED) {
+                    if (sub.provisionSubscriber) {
+                        try {
+                            oltFlowService.handleSubscriberFlows(sub);
+                            discoveredSubscribersQueue.remove(sub);
+                        } catch (Exception e) {
+                            log.error(e.getMessage());
+                        }
+                    } else {
+                        try {
+                            oltFlowService.handleBasicPortFlows(sub);
+                            discoveredSubscribersQueue.remove(sub);
+                        } catch (Exception e) {
+                            log.error(e.getMessage());
+                        }
+                    }
+
+                } else if (sub.status == DiscoveredSubscriber.Status.REMOVED) {
+                    log.warn("currently not handling removed subscribers, removing it from queue: {}", sub);
+                    discoveredSubscribersQueue.remove(sub);
+                }
+            }
+            try {
+                TimeUnit.SECONDS.sleep(5);
+            } catch (Exception e) {
+                continue;
+            }
+        }
+    }
 }

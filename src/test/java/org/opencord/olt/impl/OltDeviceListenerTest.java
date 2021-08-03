@@ -1,4 +1,4 @@
-package org.opencord.olt;
+package org.opencord.olt.impl;
 
 import org.junit.Before;
 import org.junit.Test;
@@ -19,7 +19,7 @@ public class OltDeviceListenerTest extends OltTestHelpers {
 
     @Before
     public void setUp() {
-        MockOltDeviceService mockOltDeviceService = new MockOltDeviceService();
+        MockOltDeviceServiceService mockOltDeviceService = new MockOltDeviceServiceService();
         oltDeviceListener = new OltDeviceListener(mockOltDeviceService, discoveredSubscribersQueue);
     }
 
