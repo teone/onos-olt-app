@@ -1,0 +1,13 @@
+# IDEs and temporary files
+*~
+*.class
+.classpath
+.project
+.settings
+.checkstyle
+.DS_Store
+.idea/
+*.iml
+
+# Build Artifacts
+target/
