@@ -27,7 +27,7 @@ public class OltDeviceService implements OltDeviceServiceInterface {
     }
 
     /**
-     * Returns true if the device is an OLT
+     * Returns true if the device is an OLT.
      * @param device the Device to be checked
      * @return boolean
      */
@@ -52,6 +52,7 @@ public class OltDeviceService implements OltDeviceServiceInterface {
     /**
      * Returns true if the port is an NNI Port on the OLT.
      * NOTE: We can check if a port is a NNI based on the SADIS config, specifically the uplinkPort section
+     * @param dev the Device this port belongs to
      * @param port the Port to be checked
      * @return boolean
      */

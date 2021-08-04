@@ -2,6 +2,7 @@ package org.opencord.olt.impl;
 
 import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
+import org.onosproject.net.AnnotationKeys;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
@@ -56,6 +57,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             unbind = "unbindSadisService",
             policy = ReferencePolicy.DYNAMIC)
     protected volatile SadisService sadisService;
+
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
     protected BaseInformationService<BandwidthProfileInformation> bpService;
 
@@ -98,12 +100,6 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     @Activate
     public void activate(ComponentContext context) {
-        if (sadisService != null) {
-            bpService = sadisService.getBandwidthProfileService();
-            subsService = sadisService.getSubscriberInfoService();
-        } else {
-            log.warn("SADIS_NOT_RUNNING");
-        }
         cfgService.registerProperties(getClass());
     }
 
@@ -159,16 +155,28 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
-    public void handleBasicPortFlows(DiscoveredSubscriber sub) {
-        // FIXME everything indicates that Sadis should be loaded but it's not
+    public void handleBasicPortFlows(BaseInformationService<SubscriberAndDeviceInformation> subsService,
+                                     DiscoveredSubscriber sub) {
+
+        // we only need to something if EAPOL is enabled
+        if (!enableEapol) {
+            return;
+        }
+
+        // FIXME everything indicates that Sadis should be loaded but it's not,
+        // as a workaround I'm passing it in from OltAppComponent
         log.info("subsService: {}", subsService);
-//        SubscriberAndDeviceInformation si = subsService.get(sub.port.annotations().value(AnnotationKeys.PORT_NAME));
-        log.warn("handleBasicPortFlows unimplemented for sub {}", sub);
+        SubscriberAndDeviceInformation si = subsService.get(sub.port.annotations().value(AnnotationKeys.PORT_NAME));
+        log.warn("handleBasicPortFlows unimplemented for sub {} with info {}", sub, si);
     }
 
     @Override
     public void handleSubscriberFlows(DiscoveredSubscriber sub) {
         log.warn("handleSubscriberFlows unimplemented");
+    }
+
+    private void installDefaultEapolFlow() {
+        // TODO check if meter is present
     }
 
     protected void bindSadisService(SadisService service) {

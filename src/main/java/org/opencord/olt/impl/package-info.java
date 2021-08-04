@@ -17,4 +17,4 @@
 /**
  * ONOS application archetype.
  */
-package org.opencord.olt;
+package org.opencord.olt.impl;

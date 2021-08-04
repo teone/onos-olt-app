@@ -9,12 +9,13 @@ import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.BlockingQueue;
 
-public class OltDeviceListener  implements DeviceListener {
+public class OltDeviceListener implements DeviceListener {
     private final Logger log = LoggerFactory.getLogger(getClass());
     private final OltDeviceServiceInterface oltDevice;
     private final BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue;
 
-    public OltDeviceListener(OltDeviceServiceInterface oltDevice, BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue) {
+    public OltDeviceListener(OltDeviceServiceInterface oltDevice,
+                             BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue) {
         this.discoveredSubscribersQueue = discoveredSubscribersQueue;
         this.oltDevice = oltDevice;
     }
@@ -44,13 +45,14 @@ public class OltDeviceListener  implements DeviceListener {
 
     private void handleOltPort(DeviceEvent.Type type, Device device, Port port) {
         log.info("OltDeviceListener receives event {} for port {} with status {} on device {}", type, port.number(),
-                port.isEnabled() ? "ENABLED":"DISABLED", device.id());
+                port.isEnabled() ? "ENABLED" : "DISABLED", device.id());
 
         if (port.isEnabled()) {
             if (oltDevice.isNniPort(device, port)) {
                 log.warn("TODO handle NNI flows add");
             } else {
-                DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port, DiscoveredSubscriber.Status.ADDED, false);
+                DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                        DiscoveredSubscriber.Status.ADDED, false);
                 if (!discoveredSubscribersQueue.contains(sub)) {
                     log.info("Adding subscriber to queue: {}", sub);
                     discoveredSubscribersQueue.add(sub);
@@ -61,7 +63,8 @@ public class OltDeviceListener  implements DeviceListener {
                 // NOTE this may need to be handled on DEVICE_REMOVE as we don't disable the NNI
                 log.warn("TODO handle NNI flows remove");
             } else {
-                DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port, DiscoveredSubscriber.Status.REMOVED, false);
+                DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                        DiscoveredSubscriber.Status.REMOVED, false);
                 if (!discoveredSubscribersQueue.contains(sub)) {
                     log.info("Adding subscriber to queue: {}", sub);
                     discoveredSubscribersQueue.add(sub);

@@ -1,12 +1,30 @@
 package org.opencord.olt.impl;
 
-import org.onosproject.net.*;
-import org.opencord.olt.impl.OltDeviceServiceInterface;
+import com.google.common.collect.Maps;
+import org.onlab.packet.Ip4Address;
+import org.onlab.packet.MacAddress;
+import org.onosproject.net.AnnotationKeys;
+import org.onosproject.net.Annotations;
+import org.onosproject.net.Device;
+import org.onosproject.net.Element;
+import org.onosproject.net.Port;
+import org.onosproject.net.PortNumber;
+import org.opencord.sadis.BandwidthProfileInformation;
+import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
 
+import java.util.Map;
+
+@SuppressWarnings("checkstyle:HideUtilityClassConstructor")
 public class OltTestHelpers {
 
-    public static String NNI_PREFIX = "nni-";
+    protected static final String CLIENT_NAS_PORT_ID = "PON 1/1";
+    protected static final String CLIENT_CIRCUIT_ID = "CIR-PON 1/1";
+    protected static final String OLT_DEV_ID = "of:00000000000000aa";
+    Map<String, BandwidthProfileInformation> bpInformation = Maps.newConcurrentMap();
+
+    public static String nniPrefix = "nni-";
 
     protected class MockOltDeviceServiceService implements OltDeviceServiceInterface {
 
@@ -15,7 +33,7 @@ public class OltTestHelpers {
         }
 
         public boolean isNniPort(Device device, Port port) {
-            return port.annotations().value(AnnotationKeys.PORT_NAME).startsWith(NNI_PREFIX);
+            return port.annotations().value(AnnotationKeys.PORT_NAME).startsWith(nniPrefix);
         }
 
         @Override
@@ -25,7 +43,7 @@ public class OltTestHelpers {
         public void unbindSadisService() {}
     }
 
-    protected class OltPort implements Port {
+    public class OltPort implements Port {
 
         public boolean enabled;
         public PortNumber portNumber;
@@ -65,6 +83,88 @@ public class OltTestHelpers {
         @Override
         public Annotations annotations() {
             return annotations;
+        }
+    }
+
+    protected class MockSadisService implements SadisService {
+
+        @Override
+        public BaseInformationService<SubscriberAndDeviceInformation> getSubscriberInfoService() {
+            return new MockSubService();
+        }
+
+        @Override
+        public BaseInformationService<BandwidthProfileInformation> getBandwidthProfileService() {
+            return new MockBpService();
+        }
+    }
+
+    private class MockBpService implements BaseInformationService<BandwidthProfileInformation> {
+        @Override
+        public void clearLocalData() {
+
+        }
+
+        @Override
+        public void invalidateAll() {
+
+        }
+
+        @Override
+        public void invalidateId(String id) {
+
+        }
+
+        @Override
+        public BandwidthProfileInformation get(String id) {
+            return bpInformation.get(id);
+        }
+
+        @Override
+        public BandwidthProfileInformation getfromCache(String id) {
+            return null;
+        }
+    }
+
+    private class MockSubService implements BaseInformationService<SubscriberAndDeviceInformation> {
+        MockSubscriberAndDeviceInformation sub =
+                new MockSubscriberAndDeviceInformation(CLIENT_NAS_PORT_ID,
+                        CLIENT_NAS_PORT_ID, CLIENT_CIRCUIT_ID, null, null);
+
+        @Override
+        public SubscriberAndDeviceInformation get(String id) {
+            return sub;
+        }
+
+        @Override
+        public void clearLocalData() {
+
+        }
+
+        @Override
+        public void invalidateAll() {
+        }
+
+        @Override
+        public void invalidateId(String id) {
+        }
+
+        @Override
+        public SubscriberAndDeviceInformation getfromCache(String id) {
+            return null;
+        }
+    }
+
+    private class MockSubscriberAndDeviceInformation extends SubscriberAndDeviceInformation {
+
+        MockSubscriberAndDeviceInformation(String id, String nasPortId,
+                                           String circuitId, MacAddress hardId,
+                                           Ip4Address ipAddress) {
+            this.setHardwareIdentifier(hardId);
+            this.setId(id);
+            this.setIPAddress(ipAddress);
+            this.setNasPortId(nasPortId);
+            this.setCircuitId(circuitId);
         }
     }
 }

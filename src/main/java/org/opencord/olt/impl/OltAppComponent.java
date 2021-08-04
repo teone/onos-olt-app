@@ -18,26 +18,39 @@ package org.opencord.olt.impl;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.net.device.DeviceListener;
 import org.onosproject.net.device.DeviceService;
+import org.opencord.sadis.BandwidthProfileInformation;
+import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
 import org.osgi.service.component.ComponentContext;
-import org.osgi.service.component.annotations.*;
+import org.osgi.service.component.annotations.Activate;
+import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Deactivate;
+import org.osgi.service.component.annotations.Modified;
+import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferenceCardinality;
+import org.osgi.service.component.annotations.ReferencePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Dictionary;
 import java.util.Properties;
-import java.util.concurrent.*;
+import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.Executors;
+import java.util.concurrent.LinkedBlockingQueue;
+import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static org.onlab.util.Tools.get;
 import static org.onlab.util.Tools.groupedThreads;
 
 /**
- * OLT Application
+ * OLT Application.
  */
 @Component(immediate = true,
-           property = {
-            "someProperty:String=useless-for-now"
-           })
+        property = {
+                "someProperty:String=useless-for-now"
+        })
 public class OltAppComponent {
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
@@ -52,15 +65,20 @@ public class OltAppComponent {
             policy = ReferencePolicy.DYNAMIC)
     protected volatile SadisService sadisService;
 
+    protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
+    protected BaseInformationService<BandwidthProfileInformation> bpService;
+
     private final Logger log = LoggerFactory.getLogger(getClass());
 
-    private OltDeviceServiceInterface oltDevice = new OltDeviceService();
-    private OltFlowServiceInterface oltFlowService = new OltFlowService();
+    protected OltDeviceServiceInterface oltDevice = new OltDeviceService();
+    protected OltFlowServiceInterface oltFlowService = new OltFlowService();
 
-    protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
+    protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue =
+            new LinkedBlockingQueue<DiscoveredSubscriber>();
     private DeviceListener deviceListener;
-    protected ScheduledExecutorService discoveredSubscriberExecutor = Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
-            "discovered-cp-%d", log));
+    protected ScheduledExecutorService discoveredSubscriberExecutor =
+            Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
+                    "discovered-cp-%d", log));
 
     private String someProperty;
 
@@ -93,11 +111,15 @@ public class OltAppComponent {
     protected void bindSadisService(SadisService service) {
         oltDevice.bindSadisService(service);
         sadisService = service;
+        bpService = sadisService.getBandwidthProfileService();
+        subsService = sadisService.getSubscriberInfoService();
     }
 
     protected void unbindSadisService(SadisService service) {
         oltDevice.unbindSadisService();
         sadisService = null;
+        bpService = null;
+        subsService = null;
     }
 
     private void processDiscoveredSubscribers() {
@@ -116,7 +138,7 @@ public class OltAppComponent {
                         }
                     } else {
                         try {
-                            oltFlowService.handleBasicPortFlows(sub);
+                            oltFlowService.handleBasicPortFlows(sadisService.getSubscriberInfoService(), sub);
                             discoveredSubscribersQueue.remove(sub);
                         } catch (Exception e) {
                             log.error(e.getMessage());
@@ -128,8 +150,10 @@ public class OltAppComponent {
                     discoveredSubscribersQueue.remove(sub);
                 }
             }
+            // temporary code to slow down processing while testing,
+            // to be removed
             try {
-                TimeUnit.SECONDS.sleep(5);
+                TimeUnit.MILLISECONDS.sleep(500);
             } catch (Exception e) {
                 continue;
             }

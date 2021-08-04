@@ -3,7 +3,13 @@ package org.opencord.olt.impl;
 import org.junit.Before;
 import org.junit.Test;
 import org.onlab.packet.ChassisId;
-import org.onosproject.net.*;
+import org.onosproject.net.AnnotationKeys;
+import org.onosproject.net.DefaultAnnotations;
+import org.onosproject.net.DefaultDevice;
+import org.onosproject.net.Device;
+import org.onosproject.net.DeviceId;
+import org.onosproject.net.Port;
+import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceEvent;
 import org.onosproject.net.provider.ProviderId;
 
@@ -12,10 +18,13 @@ import java.util.concurrent.LinkedBlockingQueue;
 
 public class OltDeviceListenerTest extends OltTestHelpers {
     private OltDeviceListener oltDeviceListener;
-    protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
+
+    protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue =
+            new LinkedBlockingQueue<DiscoveredSubscriber>();
 
     private DeviceId deviceId = DeviceId.deviceId("test-device");
-    private Device testDevice = new DefaultDevice(ProviderId.NONE, deviceId, Device.Type.OLT, "testManufacturer", "1.0.0", "1.0.0", "SN", new ChassisId(1));
+    private Device testDevice = new DefaultDevice(ProviderId.NONE, deviceId, Device.Type.OLT,
+            "testManufacturer", "1.0", "1.0", "SN", new ChassisId(1));
 
     @Before
     public void setUp() {
@@ -25,7 +34,8 @@ public class OltDeviceListenerTest extends OltTestHelpers {
 
     @Test
     public void testNniEvent() {
-        Port nniPort = new OltPort(true, PortNumber.portNumber(1048576), DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, NNI_PREFIX + "1").build());
+        Port nniPort = new OltPort(true, PortNumber.portNumber(1048576),
+                DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, nniPrefix + "1").build());
         DeviceEvent event = new DeviceEvent(DeviceEvent.Type.PORT_ADDED, testDevice, nniPort);
         oltDeviceListener.event(event);
 
@@ -43,7 +53,8 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         // - UNI port updated to disabled state
         // - UNI port removed (assumes it's disabled state)
 
-        Port uniAddedDisabled = new OltPort(false, PortNumber.portNumber(16), DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
+        Port uniAddedDisabled = new OltPort(false, PortNumber.portNumber(16),
+                DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
         DeviceEvent uniAddedDisabledEvent = new DeviceEvent(DeviceEvent.Type.PORT_ADDED, testDevice, uniAddedDisabled);
         oltDeviceListener.event(uniAddedDisabledEvent);
 
@@ -55,8 +66,10 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         assert sub.status.equals(DiscoveredSubscriber.Status.REMOVED); // we need to remove flows for this port (if any)
         assert discoveredSubscribersQueue.isEmpty(); // the queue is now empty
 
-        Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16), DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
-        DeviceEvent uniUpdateEnabledEvent = new DeviceEvent(DeviceEvent.Type.PORT_UPDATED, testDevice, uniUpdateEnabled);
+        Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
+                DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
+        DeviceEvent uniUpdateEnabledEvent =
+                new DeviceEvent(DeviceEvent.Type.PORT_UPDATED, testDevice, uniUpdateEnabled);
         oltDeviceListener.event(uniUpdateEnabledEvent);
 
         assert !discoveredSubscribersQueue.isEmpty();
