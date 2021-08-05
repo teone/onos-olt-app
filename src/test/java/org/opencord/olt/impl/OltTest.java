@@ -48,15 +48,16 @@ import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
 import static org.onlab.util.Tools.groupedThreads;
+import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
 
 /**
  * Set of tests of the ONOS application component.
  */
 
 @RunWith(MockitoJUnitRunner.class)
-public class OltAppComponentTest extends OltTestHelpers {
+public class OltTest extends OltTestHelpers {
 
-    private OltAppComponent component;
+    private Olt component;
     private final Logger log = LoggerFactory.getLogger(getClass());
 
 
@@ -65,12 +66,12 @@ public class OltAppComponentTest extends OltTestHelpers {
             "testManufacturer", "1.0", "1.0", "SN", new ChassisId(1));
     Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
             DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
-    DiscoveredSubscriber sub = new DiscoveredSubscriber(testDevice,
+    private DiscoveredSubscriber sub = new DiscoveredSubscriber(testDevice,
             uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED, false);
 
     @Before
     public void setUp() {
-        component = new OltAppComponent();
+        component = new Olt();
         component.cfgService = new ComponentConfigAdapter();
         component.deviceService = new DeviceServiceAdapter();
         component.discoveredSubscribersQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
@@ -78,7 +79,6 @@ public class OltAppComponentTest extends OltTestHelpers {
                 "discovered-cp-%d", log));
         component.oltFlowService = Mockito.spy(new OltFlowService());
         component.sadisService = new MockSadisService();
-        component.subsService = component.sadisService.getSubscriberInfoService();
         component.activate();
     }
 
@@ -97,13 +97,13 @@ public class OltAppComponentTest extends OltTestHelpers {
     @Test
     public void testProcessDiscoveredSubscribersBasicPortSuccess() throws Exception {
 
-
         // adding the discovered subscriber to the queue
         component.discoveredSubscribersQueue.add(sub);
 
         // check that we're calling the correct method
         TimeUnit.SECONDS.sleep(1);
-        verify(component.oltFlowService, times(1)).handleBasicPortFlows(any(), eq(sub));
+        verify(component.oltFlowService, times(1)).handleBasicPortFlows(any(), eq(sub),
+                DEFAULT_BP_ID_DEFAULT);
 
         // check if the method doesn't throw an exception we're removing the subscriber from the queue
         assert component.discoveredSubscribersQueue.isEmpty();
@@ -111,16 +111,16 @@ public class OltAppComponentTest extends OltTestHelpers {
 
     @Test
     public void testProcessDiscoveredSubscribersBasicPortException() throws Exception {
-        doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(), any());
+        doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(), any(),
+                DEFAULT_BP_ID_DEFAULT);
 
         // adding the discovered subscriber to the queue
         component.discoveredSubscribersQueue.add(sub);
 
-
         // check that we're calling the correct method,
         // since the subscriber is not removed from the queue we're calling the method multiple times
         TimeUnit.SECONDS.sleep(1);
-        verify(component.oltFlowService, atLeastOnce()).handleBasicPortFlows(any(), eq(sub));
+        verify(component.oltFlowService, atLeastOnce()).handleBasicPortFlows(any(), eq(sub), DEFAULT_BP_ID_DEFAULT);
 
         // check if the method throws an exception we're not removing the subscriber from the queue
         assert component.discoveredSubscribersQueue.size() == 1;

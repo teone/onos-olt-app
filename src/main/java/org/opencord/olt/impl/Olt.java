@@ -18,10 +18,7 @@ package org.opencord.olt.impl;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.net.device.DeviceListener;
 import org.onosproject.net.device.DeviceService;
-import org.opencord.sadis.BandwidthProfileInformation;
-import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
-import org.opencord.sadis.SubscriberAndDeviceInformation;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
@@ -29,7 +26,6 @@ import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Modified;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
-import org.osgi.service.component.annotations.ReferencePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -41,17 +37,30 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 
+import static com.google.common.base.Strings.isNullOrEmpty;
 import static org.onlab.util.Tools.get;
 import static org.onlab.util.Tools.groupedThreads;
+import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID;
+import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
+import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_MCAST_SERVICE_NAME;
+import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_MCAST_SERVICE_NAME_DEFAULT;
+import static org.opencord.olt.impl.OsgiPropertyConstants.EAPOL_DELETE_RETRY_MAX_ATTEMPS;
+import static org.opencord.olt.impl.OsgiPropertyConstants.EAPOL_DELETE_RETRY_MAX_ATTEMPS_DEFAULT;
+import static org.opencord.olt.impl.OsgiPropertyConstants.PROVISION_DELAY;
+import static org.opencord.olt.impl.OsgiPropertyConstants.PROVISION_DELAY_DEFAULT;
 
 /**
  * OLT Application.
  */
 @Component(immediate = true,
         property = {
-                "someProperty:String=useless-for-now"
+                DEFAULT_BP_ID + ":String=" + DEFAULT_BP_ID_DEFAULT,
+                DEFAULT_MCAST_SERVICE_NAME + ":String=" + DEFAULT_MCAST_SERVICE_NAME_DEFAULT,
+                EAPOL_DELETE_RETRY_MAX_ATTEMPS + ":Integer=" +
+                        EAPOL_DELETE_RETRY_MAX_ATTEMPS_DEFAULT,
+                PROVISION_DELAY + ":Integer=" + PROVISION_DELAY_DEFAULT,
         })
-public class OltAppComponent {
+public class Olt {
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected DeviceService deviceService;
@@ -59,19 +68,36 @@ public class OltAppComponent {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected ComponentConfigService cfgService;
 
-    @Reference(cardinality = ReferenceCardinality.OPTIONAL,
-            bind = "bindSadisService",
-            unbind = "unbindSadisService",
-            policy = ReferencePolicy.DYNAMIC)
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile SadisService sadisService;
 
-    protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
-    protected BaseInformationService<BandwidthProfileInformation> bpService;
+    /**
+     * Default bandwidth profile id that is used for authentication trap flows.
+     **/
+    protected String defaultBpId = DEFAULT_BP_ID_DEFAULT;
+
+    /**
+     * Default multicast service name.
+     **/
+    protected String multicastServiceName = DEFAULT_MCAST_SERVICE_NAME_DEFAULT;
+
+    /**
+     * Default amounts of eapol retry.
+     **/
+    protected int eapolDeleteRetryMaxAttempts = EAPOL_DELETE_RETRY_MAX_ATTEMPS_DEFAULT;
+
+    /**
+     * Delay between EAPOL removal and data plane flows provisioning.
+     */
+    protected int provisionDelay = PROVISION_DELAY_DEFAULT;
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
-    protected OltDeviceServiceInterface oltDevice = new OltDeviceService();
-    protected OltFlowServiceInterface oltFlowService = new OltFlowService();
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected OltDeviceServiceInterface oltDeviceService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected OltFlowServiceInterface oltFlowService;
 
     protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue =
             new LinkedBlockingQueue<DiscoveredSubscriber>();
@@ -85,7 +111,7 @@ public class OltAppComponent {
     @Activate
     protected void activate() {
         cfgService.registerProperties(getClass());
-        deviceListener = new OltDeviceListener(oltDevice, discoveredSubscribersQueue);
+        deviceListener = new OltDeviceListener(oltDeviceService, discoveredSubscribersQueue);
         deviceService.addListener(deviceListener);
         discoveredSubscriberExecutor.execute(this::processDiscoveredSubscribers);
         log.info("Started");
@@ -103,23 +129,30 @@ public class OltAppComponent {
     public void modified(ComponentContext context) {
         Dictionary<?, ?> properties = context != null ? context.getProperties() : new Properties();
         if (context != null) {
-            someProperty = get(properties, "someProperty");
+            String bpId = get(properties, DEFAULT_BP_ID);
+            defaultBpId = isNullOrEmpty(bpId) ? defaultBpId : bpId;
+
+            String mcastSN = get(properties, DEFAULT_MCAST_SERVICE_NAME);
+            multicastServiceName = isNullOrEmpty(mcastSN) ? multicastServiceName : mcastSN;
+
+            String eapolDeleteRetryNew = get(properties, EAPOL_DELETE_RETRY_MAX_ATTEMPS);
+            eapolDeleteRetryMaxAttempts = isNullOrEmpty(eapolDeleteRetryNew) ? EAPOL_DELETE_RETRY_MAX_ATTEMPS_DEFAULT :
+                    Integer.parseInt(eapolDeleteRetryNew.trim());
+
+            log.debug("OLT properties: DefaultBpId: {}, MulticastServiceName: {}, EapolDeleteRetryMaxAttempts: {}",
+                    defaultBpId, multicastServiceName, eapolDeleteRetryMaxAttempts);
         }
         log.info("Reconfigured");
     }
 
     protected void bindSadisService(SadisService service) {
-        oltDevice.bindSadisService(service);
+        oltDeviceService.bindSadisService(service);
         sadisService = service;
-        bpService = sadisService.getBandwidthProfileService();
-        subsService = sadisService.getSubscriberInfoService();
     }
 
     protected void unbindSadisService(SadisService service) {
-        oltDevice.unbindSadisService();
+        oltDeviceService.unbindSadisService();
         sadisService = null;
-        bpService = null;
-        subsService = null;
     }
 
     private void processDiscoveredSubscribers() {
@@ -127,6 +160,7 @@ public class OltAppComponent {
         while (true) {
             if (!discoveredSubscribersQueue.isEmpty()) {
                 DiscoveredSubscriber sub = discoveredSubscribersQueue.peek();
+                log.info("Processing discovered subscriber: {}", sub);
 
                 if (sub.status == DiscoveredSubscriber.Status.ADDED) {
                     if (sub.provisionSubscriber) {
@@ -138,9 +172,12 @@ public class OltAppComponent {
                         }
                     } else {
                         try {
-                            oltFlowService.handleBasicPortFlows(sadisService.getSubscriberInfoService(), sub);
+                            oltFlowService.handleBasicPortFlows(
+                                    sadisService.getSubscriberInfoService(), sub, defaultBpId);
                             discoveredSubscribersQueue.remove(sub);
                         } catch (Exception e) {
+                            // we get an excpetion if something is not ready and we'll need
+                            // to retry later (eg: the meter is still being installed)
                             log.error(e.getMessage());
                         }
                     }

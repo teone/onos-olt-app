@@ -14,7 +14,6 @@ import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Modified;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
-import org.osgi.service.component.annotations.ReferencePolicy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -23,6 +22,7 @@ import java.util.Properties;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static org.onlab.util.Tools.get;
+import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_TP_ID;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_TP_ID_DEFAULT;
 import static org.opencord.olt.impl.OsgiPropertyConstants.ENABLE_DHCP_ON_NNI;
@@ -52,14 +52,16 @@ public class OltFlowService implements OltFlowServiceInterface {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected ComponentConfigService cfgService;
 
-    @Reference(cardinality = ReferenceCardinality.OPTIONAL,
-            bind = "bindSadisService",
-            unbind = "unbindSadisService",
-            policy = ReferencePolicy.DYNAMIC)
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile SadisService sadisService;
+
+    // FIXME se importo il meter service non parte un cazzo
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected OltMeterServiceInterface oltMeterService;
 
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
     protected BaseInformationService<BandwidthProfileInformation> bpService;
+
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
@@ -99,8 +101,11 @@ public class OltFlowService implements OltFlowServiceInterface {
     protected int defaultTechProfileId = DEFAULT_TP_ID_DEFAULT;
 
     @Activate
-    public void activate(ComponentContext context) {
+    public void activate() {
+        bpService = sadisService.getBandwidthProfileService();
+        subsService = sadisService.getSubscriberInfoService();
         cfgService.registerProperties(getClass());
+        log.info("Activated");
     }
 
     @Deactivate
@@ -156,18 +161,25 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     @Override
     public void handleBasicPortFlows(BaseInformationService<SubscriberAndDeviceInformation> subsService,
-                                     DiscoveredSubscriber sub) {
+                                     DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
 
         // we only need to something if EAPOL is enabled
         if (!enableEapol) {
             return;
         }
 
-        // FIXME everything indicates that Sadis should be loaded but it's not,
-        // as a workaround I'm passing it in from OltAppComponent
-        log.info("subsService: {}", subsService);
         SubscriberAndDeviceInformation si = subsService.get(sub.port.annotations().value(AnnotationKeys.PORT_NAME));
-        log.warn("handleBasicPortFlows unimplemented for sub {} with info {}", sub, si);
+        if (!oltMeterService.hasMeterByBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT)) {
+            log.info("Missing meter for Bandwidth profile {} on device {}", DEFAULT_BP_ID_DEFAULT, sub.device.id());
+
+            if (!oltMeterService.hasPendingMeterByBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT)) {
+                oltMeterService.createMeterForBp(sub.device.id(), DEFAULT_BP_ID_DEFAULT);
+            }
+            throw new Exception("Meter is not yet available");
+        } else {
+            log.warn("TODO add default EAPOL flow to pending subscribers for {} with info {}", sub, si);
+            installDefaultEapolFlow();
+        }
     }
 
     @Override
@@ -176,20 +188,6 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void installDefaultEapolFlow() {
-        // TODO check if meter is present
-    }
 
-    protected void bindSadisService(SadisService service) {
-        sadisService = service;
-        bpService = sadisService.getBandwidthProfileService();
-        subsService = sadisService.getSubscriberInfoService();
-        log.info("Sadis service is loaded: {} {}", subsService, bpService);
-    }
-
-    protected void unbindSadisService(SadisService service) {
-        sadisService = null;
-        bpService = null;
-        subsService = null;
-        log.info("Sadis service is unloaded");
     }
 }

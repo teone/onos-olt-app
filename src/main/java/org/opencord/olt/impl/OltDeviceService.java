@@ -6,18 +6,29 @@ import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
 import org.opencord.sadis.SubscriberAndDeviceInformation;
+import org.osgi.service.component.annotations.Activate;
+import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Reference;
+import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.slf4j.Logger;
 
 import static org.slf4j.LoggerFactory.getLogger;
 
+@Component(immediate = true)
 public class OltDeviceService implements OltDeviceServiceInterface {
 
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
     protected BaseInformationService<BandwidthProfileInformation> bpService;
     private final Logger log = getLogger(getClass());
 
-    private static final String NNI = "nni-";
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected volatile SadisService sadisService;
 
+    @Activate
+    public void activate() {
+        subsService = sadisService.getSubscriberInfoService();
+        log.info("Activated {}", subsService);
+    }
     private boolean checkSadisRunning() {
         if (subsService == null) {
             log.warn("Sadis is not running");
@@ -28,6 +39,7 @@ public class OltDeviceService implements OltDeviceServiceInterface {
 
     /**
      * Returns true if the device is an OLT.
+     *
      * @param device the Device to be checked
      * @return boolean
      */
@@ -52,7 +64,8 @@ public class OltDeviceService implements OltDeviceServiceInterface {
     /**
      * Returns true if the port is an NNI Port on the OLT.
      * NOTE: We can check if a port is a NNI based on the SADIS config, specifically the uplinkPort section
-     * @param dev the Device this port belongs to
+     *
+     * @param dev  the Device this port belongs to
      * @param port the Port to be checked
      * @return boolean
      */
