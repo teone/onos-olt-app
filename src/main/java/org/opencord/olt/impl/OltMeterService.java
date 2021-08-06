@@ -15,7 +15,7 @@ import org.onosproject.net.meter.MeterFailReason;
 import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.meter.MeterRequest;
 import org.onosproject.net.meter.MeterService;
-import org.onosproject.net.meter.MeterStore;
+import org.onosproject.store.service.AsyncDistributedLock;
 import org.onosproject.store.service.StorageService;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
@@ -41,8 +41,6 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import java.util.concurrent.locks.Lock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static org.onlab.util.Tools.groupedThreads;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DELETE_METERS;
@@ -70,17 +68,12 @@ public class OltMeterService implements OltMeterServiceInterface {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile MeterService meterService;
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    private MeterStore meterStore;
-
     private final Logger log = getLogger(getClass());
     protected BaseInformationService<BandwidthProfileInformation> bpService;
     private ApplicationId appId;
     private static final String APP_NAME = "org.opencord.olt";
     protected HashMap<DeviceId, List<MeterData>> programmedMeters;
-    private ReentrantReadWriteLock programmedMeterLock = new ReentrantReadWriteLock();
-    private Lock programmedMeterWriteLock = programmedMeterLock.writeLock();
-    private Lock programmedMeterReadLock = programmedMeterLock.readLock();
+    private AsyncDistributedLock programmedMeterLock;
 
     protected BlockingQueue<OltMeterRequest> pendingMeters =
             new LinkedBlockingQueue<OltMeterRequest>();
@@ -96,6 +89,9 @@ public class OltMeterService implements OltMeterServiceInterface {
     @Activate
     public void activate() {
         appId = coreService.registerApplication(APP_NAME);
+
+        programmedMeterLock = storageService.lockBuilder().withApplicationId(appId)
+                .withName("olt-pending-meters").build();
 
 //        KryoNamespace serializer = KryoNamespace.newBuilder()
 //                .register(KryoNamespaces.API)
@@ -139,20 +135,20 @@ public class OltMeterService implements OltMeterServiceInterface {
      */
     public boolean hasMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile) {
         try {
-            programmedMeterReadLock.lock();
+            programmedMeterLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(deviceId);
             if (metersOnDevice == null || metersOnDevice.isEmpty()) {
                 return false;
             }
             return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile));
         } finally {
-            programmedMeterReadLock.unlock();
+            programmedMeterLock.unlock();
         }
     }
 
     public boolean hasPendingMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile) {
         try {
-            programmedMeterReadLock.lock();
+            programmedMeterLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(deviceId);
             if (metersOnDevice == null || metersOnDevice.isEmpty()) {
                 return false;
@@ -160,13 +156,13 @@ public class OltMeterService implements OltMeterServiceInterface {
             return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile)
                     && md.meterStatus.equals(MeterStatus.PENDING_ADD));
         } finally {
-            programmedMeterReadLock.unlock();
+            programmedMeterLock.unlock();
         }
     }
 
     public MeterId getMeterIdForBandwidthProfile(DeviceId deviceId, String bpId) {
         try {
-            programmedMeterReadLock.lock();
+            programmedMeterLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(deviceId);
             if (metersOnDevice == null || metersOnDevice.isEmpty()) {
                 return null;
@@ -180,7 +176,7 @@ public class OltMeterService implements OltMeterServiceInterface {
             }
             return null;
         } finally {
-            programmedMeterReadLock.unlock();
+            programmedMeterLock.unlock();
         }
     }
 
@@ -233,7 +229,7 @@ public class OltMeterService implements OltMeterServiceInterface {
         if (!pendingMeters.contains(request)) {
 
             // adding meter in pending state to the programmedMeter map
-            programmedMeterWriteLock.lock();
+            programmedMeterLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(request.deviceId);
             if (metersOnDevice == null) {
                 metersOnDevice = new LinkedList<>();
@@ -247,7 +243,7 @@ public class OltMeterService implements OltMeterServiceInterface {
             );
             metersOnDevice.add(meterData);
             programmedMeters.put(deviceId, metersOnDevice);
-            programmedMeterWriteLock.unlock();
+            programmedMeterLock.unlock();
 
             // enqueue the request
             pendingMeters.add(request);
@@ -266,7 +262,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                 log.info("Remaining meters: {}", pendingMeters.size());
                 // then update the map with the MeterId
                 try {
-                    programmedMeterWriteLock.lock();
+                    programmedMeterLock.lock();
                     List<MeterData> existingMeters = programmedMeters.get(request.deviceId);
 
                     // update the meter to ADDED and add the CellId to it
@@ -293,7 +289,7 @@ public class OltMeterService implements OltMeterServiceInterface {
 
                     log.info("updated meters for device: {}", programmedMeters.get(request.deviceId));
                 } finally {
-                    programmedMeterWriteLock.unlock();
+                    programmedMeterLock.unlock();
                 }
             });
         }
