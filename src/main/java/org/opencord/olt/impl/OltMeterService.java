@@ -270,24 +270,24 @@ public class OltMeterService implements OltMeterServiceInterface {
                     List<MeterData> existingMeters = programmedMeters.get(request.deviceId);
 
                     // update the meter to ADDED and add the CellId to it
-                    MeterData paMeter = new MeterData(
-                            null,
-                            null,
-                            MeterStatus.PENDING_ADD,
-                            request.bandwidthProfile
-                    );
 
-                    int idx = existingMeters.indexOf(paMeter);
+                    // NOTE is there a cleaner way to get the index of the pending meter?
+                    int idx = -1;
+                    int curPos = 0;
+                    for (MeterData md : existingMeters) {
+                        if (md.meterStatus.equals(MeterStatus.PENDING_ADD) &&
+                                md.bandwidthProfile.equals(request.bandwidthProfile)) {
+                            idx = curPos;
+                            break;
+                        }
+                        curPos++;
+                    }
 
+                    MeterData paMeter = existingMeters.get(idx);
                     paMeter.meterId = request.meterIdRef.get();
 //                    paMeter.meterCellId = meter.meterCellId(); // NOTE do we need the meterCellId??
                     paMeter.meterStatus = MeterStatus.ADDED;
 
-                    log.info("updating the programmedMeters map for BP {} with ID {}",
-                            request.bandwidthProfile, paMeter.meterId);
-
-                    // FIXME I can see the log above not the one below,
-                    // looks like the programmedMeters map is never updated
                     existingMeters.set(idx, paMeter);
                     programmedMeters.put(request.deviceId, existingMeters);
 
