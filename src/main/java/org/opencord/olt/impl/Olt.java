@@ -160,7 +160,7 @@ public class Olt {
         while (true) {
             if (!discoveredSubscribersQueue.isEmpty()) {
                 DiscoveredSubscriber sub = discoveredSubscribersQueue.peek();
-                log.info("Processing discovered subscriber: {}", sub);
+                log.info("Processing discovered subscriber on port {}/{}", sub.device.id(), sub.port.number());
 
                 if (sub.status == DiscoveredSubscriber.Status.ADDED) {
                     if (sub.provisionSubscriber) {
@@ -169,6 +169,7 @@ public class Olt {
                             discoveredSubscribersQueue.remove(sub);
                         } catch (Exception e) {
                             log.error(e.getMessage());
+                            continue;
                         }
                     } else {
                         try {
@@ -176,14 +177,22 @@ public class Olt {
                                     sadisService.getSubscriberInfoService(), sub, defaultBpId);
                             discoveredSubscribersQueue.remove(sub);
                         } catch (Exception e) {
-                            // we get an excpetion if something is not ready and we'll need
+                            // we get an exception if something is not ready and we'll need
                             // to retry later (eg: the meter is still being installed)
-                            log.error(e.getMessage());
+                            log.error("Processing of subscriber {}/{} postponed: {}",
+                                    sub.device.id(), sub.port.number(), e.getMessage());
+                            try {
+                                TimeUnit.MILLISECONDS.sleep(500);
+                            } catch (Exception ex) {
+                                continue;
+                            }
+                            continue;
                         }
                     }
 
                 } else if (sub.status == DiscoveredSubscriber.Status.REMOVED) {
-                    log.warn("currently not handling removed subscribers, removing it from queue: {}", sub);
+                    log.warn("currently not handling removed subscribers, removing it from queue: {}/{}",
+                            sub.device.id(), sub.port.number());
                     discoveredSubscribersQueue.remove(sub);
                 }
             }

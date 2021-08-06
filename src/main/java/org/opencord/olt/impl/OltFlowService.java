@@ -1,8 +1,24 @@
 package org.opencord.olt.impl;
 
+import org.onlab.packet.EthType;
+import org.onlab.packet.VlanId;
 import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
+import org.onosproject.core.ApplicationId;
+import org.onosproject.core.CoreService;
 import org.onosproject.net.AnnotationKeys;
+import org.onosproject.net.Port;
+import org.onosproject.net.PortNumber;
+import org.onosproject.net.flow.DefaultTrafficTreatment;
+import org.onosproject.net.flow.TrafficTreatment;
+import org.onosproject.net.flow.criteria.Criteria;
+import org.onosproject.net.flowobjective.DefaultFilteringObjective;
+import org.onosproject.net.flowobjective.FilteringObjective;
+import org.onosproject.net.flowobjective.FlowObjectiveService;
+import org.onosproject.net.flowobjective.Objective;
+import org.onosproject.net.flowobjective.ObjectiveContext;
+import org.onosproject.net.flowobjective.ObjectiveError;
+import org.onosproject.net.meter.MeterId;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
@@ -50,19 +66,27 @@ import static org.opencord.olt.impl.OsgiPropertyConstants.ENABLE_PPPOE_DEFAULT;
 public class OltFlowService implements OltFlowServiceInterface {
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected CoreService coreService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected ComponentConfigService cfgService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected FlowObjectiveService flowObjectiveService;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile SadisService sadisService;
 
-    // FIXME se importo il meter service non parte un cazzo
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected OltMeterServiceInterface oltMeterService;
 
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
     protected BaseInformationService<BandwidthProfileInformation> bpService;
 
-
+    private static final String APP_NAME = "org.opencord.olt";
+    private ApplicationId appId;
+    private static final Integer MAX_PRIORITY = 10000;
+    private static final short EAPOL_DEFAULT_VLAN = 4091;
     private final Logger log = LoggerFactory.getLogger(getClass());
 
     /**
@@ -105,6 +129,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         bpService = sadisService.getBandwidthProfileService();
         subsService = sadisService.getSubscriberInfoService();
         cfgService.registerProperties(getClass());
+        appId = coreService.registerApplication(APP_NAME);
         log.info("Activated");
     }
 
@@ -168,17 +193,17 @@ public class OltFlowService implements OltFlowServiceInterface {
             return;
         }
 
-        SubscriberAndDeviceInformation si = subsService.get(sub.port.annotations().value(AnnotationKeys.PORT_NAME));
         if (!oltMeterService.hasMeterByBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT)) {
             log.info("Missing meter for Bandwidth profile {} on device {}", DEFAULT_BP_ID_DEFAULT, sub.device.id());
 
             if (!oltMeterService.hasPendingMeterByBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT)) {
                 oltMeterService.createMeterForBp(sub.device.id(), DEFAULT_BP_ID_DEFAULT);
             }
-            throw new Exception("Meter is not yet available");
+            throw new Exception(String.format("Meter is not yet available for %s on device %s",
+                    DEFAULT_BP_ID_DEFAULT, sub.device.id()));
         } else {
-            log.warn("TODO add default EAPOL flow to pending subscribers for {} with info {}", sub, si);
-            installDefaultEapolFlow();
+            // TODO handle flow installation error
+            installDefaultEapolFlow(sub);
         }
     }
 
@@ -187,7 +212,93 @@ public class OltFlowService implements OltFlowServiceInterface {
         log.warn("handleSubscriberFlows unimplemented");
     }
 
-    private void installDefaultEapolFlow() {
+    private void installDefaultEapolFlow(DiscoveredSubscriber sub) throws Exception {
+        SubscriberAndDeviceInformation si = subsService.get(sub.port.annotations().value(AnnotationKeys.PORT_NAME));
+        if (si == null) {
+            throw new Exception(String.format("Subscriber %s information not found in sadis",
+                    sub.port.annotations().value(AnnotationKeys.PORT_NAME)));
+        }
 
+        DefaultFilteringObjective.Builder filterBuilder = DefaultFilteringObjective.builder();
+        TrafficTreatment.Builder treatmentBuilder = DefaultTrafficTreatment.builder();
+
+        int techProfileId = getDefaultTechProfileId(sub.port);
+        MeterId meterId = oltMeterService.getMeterIdForBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT);
+
+        if (meterId == null) {
+            throw new Exception(String.format("MeterId is null for BandwidthProfile %s on devices %s",
+                    DEFAULT_BP_ID_DEFAULT, sub.device.id()));
+        }
+
+        log.info("Installing default EAPOL flow for {}/{} and meterId {}",
+                sub.device.id(), sub.port.number(), meterId);
+
+        TrafficTreatment treatment = treatmentBuilder
+                .writeMetadata(createTechProfValueForWm(
+                        VlanId.vlanId(EAPOL_DEFAULT_VLAN),
+                        techProfileId, meterId), 0)
+                .setOutput(PortNumber.CONTROLLER)
+                .pushVlan()
+                .setVlanId(VlanId.vlanId(EAPOL_DEFAULT_VLAN))
+                .build();
+
+        FilteringObjective eapol = filterBuilder.permit()
+                .withKey(Criteria.matchInPort(sub.port.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.EAPOL.ethType()))
+                .withMeta(treatment)
+                .fromApp(appId)
+                .withPriority(MAX_PRIORITY)
+                .add(new ObjectiveContext() {
+                    @Override
+                    public void onSuccess(Objective objective) {
+                        log.info("EAPOL flow installed for {}/{} with details {}",
+                                sub.device.id(), sub.port.number(), objective);
+                    }
+
+                    @Override
+                    public void onError(Objective objective, ObjectiveError error) {
+                        log.error("Cannot install eapol flow: {}", error);
+                    }
+                });
+
+        log.info("Created EAPOL flow for {}/{}: {}", sub.device.id(), sub.port.number(), eapol);
+
+        flowObjectiveService.filter(sub.device.id(), eapol);
+    }
+
+    private boolean checkSadisRunning() {
+        if (bpService == null) {
+            log.warn("Sadis is not running");
+            return false;
+        }
+        return true;
+    }
+
+    private int getDefaultTechProfileId(Port port) {
+        if (!checkSadisRunning()) {
+            return defaultTechProfileId;
+        }
+        if (port != null) {
+            SubscriberAndDeviceInformation info = subsService.get(port.annotations().value(AnnotationKeys.PORT_NAME));
+            if (info != null && info.uniTagList().size() == 1) {
+                return info.uniTagList().get(0).getTechnologyProfileId();
+            }
+        }
+        return defaultTechProfileId;
+    }
+
+    private Long createTechProfValueForWm(VlanId cVlan, int techProfileId, MeterId upstreamOltMeterId) {
+        Long writeMetadata;
+
+        if (cVlan == null || VlanId.NONE.equals(cVlan)) {
+            writeMetadata = (long) techProfileId << 32;
+        } else {
+            writeMetadata = ((long) (cVlan.id()) << 48 | (long) techProfileId << 32);
+        }
+        if (upstreamOltMeterId == null) {
+            return writeMetadata;
+        } else {
+            return writeMetadata | upstreamOltMeterId.id();
+        }
     }
 }

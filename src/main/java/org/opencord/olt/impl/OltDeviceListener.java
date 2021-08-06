@@ -54,7 +54,8 @@ public class OltDeviceListener implements DeviceListener {
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                         DiscoveredSubscriber.Status.ADDED, false);
                 if (!discoveredSubscribersQueue.contains(sub)) {
-                    log.info("Adding subscriber to queue: {}", sub);
+                    log.info("Adding subscriber to queue: {}/{} with status {}",
+                            sub.device.id(), sub.port.number(), sub.status);
                     discoveredSubscribersQueue.add(sub);
                 }
             }
@@ -66,7 +67,8 @@ public class OltDeviceListener implements DeviceListener {
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                         DiscoveredSubscriber.Status.REMOVED, false);
                 if (!discoveredSubscribersQueue.contains(sub)) {
-                    log.info("Adding subscriber to queue: {}", sub);
+                    log.info("Adding subscriber to queue: {}/{} with status {}",
+                            sub.device.id(), sub.port.number(), sub.status);
                     discoveredSubscribersQueue.add(sub);
                 }
             }

@@ -1,5 +1,6 @@
 package org.opencord.olt.impl;
 
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.onosproject.cfg.ComponentConfigAdapter;
@@ -22,6 +23,7 @@ public class OltMeterServiceTest extends OltTestHelpers {
         oltMeterService.cfgService = new ComponentConfigAdapter();
         oltMeterService.coreService = new CoreServiceAdapter();
         oltMeterService.storageService = new StorageServiceAdapter();
+        oltMeterService.sadisService = new MockSadisService();
         oltMeterService.activate();
     }
 
@@ -31,9 +33,9 @@ public class OltMeterServiceTest extends OltTestHelpers {
         DeviceId deviceId = DeviceId.deviceId("foo");
 
         // FIXME how do we create a MeterCellId?
-        OltMeterService.MeterData meterPending = new OltMeterService.MeterData(MeterId.meterId(1),
+        OltMeterService.MeterData meterPending = new OltMeterService.MeterData(MeterId.meterId(1), null,
                 OltMeterService.MeterStatus.PENDING_ADD, "pending");
-        OltMeterService.MeterData meterAdded = new OltMeterService.MeterData(MeterId.meterId(2),
+        OltMeterService.MeterData meterAdded = new OltMeterService.MeterData(MeterId.meterId(2), null,
                 OltMeterService.MeterStatus.ADDED, DEFAULT_BP_ID_DEFAULT);
         List<OltMeterService.MeterData> meters = new LinkedList<>();
         meters.add(meterPending);
@@ -45,5 +47,22 @@ public class OltMeterServiceTest extends OltTestHelpers {
         assert !oltMeterService.hasMeterByBandwidthProfile(deviceId, "someBandwidthProfile");
 
         assert !oltMeterService.hasMeterByBandwidthProfile(DeviceId.deviceId("bar"), DEFAULT_BP_ID_DEFAULT);
+    }
+
+    @Test
+    public void testGetMeterId() {
+        DeviceId deviceId = DeviceId.deviceId("foo");
+        OltMeterService.MeterData meterPending = new OltMeterService.MeterData(MeterId.meterId(1), null,
+                OltMeterService.MeterStatus.PENDING_ADD, "pending");
+        OltMeterService.MeterData meterAdded = new OltMeterService.MeterData(MeterId.meterId(2), null,
+                OltMeterService.MeterStatus.ADDED, DEFAULT_BP_ID_DEFAULT);
+        List<OltMeterService.MeterData> meters = new LinkedList<>();
+        meters.add(meterPending);
+        meters.add(meterAdded);
+        oltMeterService.programmedMeters.put(deviceId, meters);
+
+        Assert.assertNull(oltMeterService.getMeterIdForBandwidthProfile(deviceId, "pending"));
+        Assert.assertEquals(MeterId.meterId(2),
+                oltMeterService.getMeterIdForBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT));
     }
 }
