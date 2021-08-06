@@ -8,7 +8,7 @@ public interface OltMeterServiceInterface {
 
     boolean hasPendingMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile);
 
-    void createMeterForBp(DeviceId deviceId, String bp);
+    void createMeterForBp(DeviceId deviceId, String bp) throws Exception;
 
     MeterId getMeterIdForBandwidthProfile(DeviceId deviceId, String bpId);
 }

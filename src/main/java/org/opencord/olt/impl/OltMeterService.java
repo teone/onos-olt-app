@@ -11,11 +11,12 @@ import org.onosproject.net.meter.DefaultMeterRequest;
 import org.onosproject.net.meter.Meter;
 import org.onosproject.net.meter.MeterCellId;
 import org.onosproject.net.meter.MeterContext;
+import org.onosproject.net.meter.MeterEvent;
 import org.onosproject.net.meter.MeterFailReason;
 import org.onosproject.net.meter.MeterId;
+import org.onosproject.net.meter.MeterListener;
 import org.onosproject.net.meter.MeterRequest;
 import org.onosproject.net.meter.MeterService;
-import org.onosproject.store.service.AsyncDistributedLock;
 import org.onosproject.store.service.StorageService;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
@@ -36,11 +37,15 @@ import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
+import java.util.stream.Collectors;
 
 import static org.onlab.util.Tools.groupedThreads;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DELETE_METERS;
@@ -73,13 +78,20 @@ public class OltMeterService implements OltMeterServiceInterface {
     private ApplicationId appId;
     private static final String APP_NAME = "org.opencord.olt";
     protected HashMap<DeviceId, List<MeterData>> programmedMeters;
-    private AsyncDistributedLock programmedMeterLock;
+    private final ReentrantReadWriteLock programmedMeterLock = new ReentrantReadWriteLock();
+    private final Lock programmedMeterWriteLock = programmedMeterLock.writeLock();
+    private final Lock programmedMeterReadLock = programmedMeterLock.readLock();
 
     protected BlockingQueue<OltMeterRequest> pendingMeters =
-            new LinkedBlockingQueue<OltMeterRequest>();
+            new LinkedBlockingQueue<>();
     protected ScheduledExecutorService pendingMetersExecutor =
             Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                     "pending-meters-%d", log));
+
+    private final MeterListener meterListener = new InternalMeterListener();
+    protected ExecutorService pendingRemovalMetersExecutor =
+            Executors.newFixedThreadPool(5, groupedThreads("onos/olt",
+                    "pending-removal-meters-%d", log));
 
     /**
      * Delete meters when reference count drops to zero.
@@ -89,9 +101,6 @@ public class OltMeterService implements OltMeterServiceInterface {
     @Activate
     public void activate() {
         appId = coreService.registerApplication(APP_NAME);
-
-        programmedMeterLock = storageService.lockBuilder().withApplicationId(appId)
-                .withName("olt-pending-meters").build();
 
 //        KryoNamespace serializer = KryoNamespace.newBuilder()
 //                .register(KryoNamespaces.API)
@@ -106,12 +115,14 @@ public class OltMeterService implements OltMeterServiceInterface {
 //                .build();
 
         // TODO this should be a distributed map
-        programmedMeters = new HashMap<DeviceId, List<MeterData>>();
+        programmedMeters = new HashMap<>();
         cfgService.registerProperties(getClass());
 
         bpService = sadisService.getBandwidthProfileService();
 
         pendingMetersExecutor.execute(this::processPendingMeters);
+
+        meterService.addListener(meterListener);
 
         log.info("Olt Meter service started {}", programmedMeters);
     }
@@ -127,7 +138,7 @@ public class OltMeterService implements OltMeterServiceInterface {
     }
 
     /**
-     * Returns true if a meter is present in the programmed meters map, regardless of the status.
+     * Returns true if a meter is present in the programmed meters map, only if status is ADDED.
      *
      * @param deviceId         the DeviceId on which to look for the meter
      * @param bandwidthProfile the Bandwidth profile associated with this meter
@@ -135,20 +146,21 @@ public class OltMeterService implements OltMeterServiceInterface {
      */
     public boolean hasMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile) {
         try {
-            programmedMeterLock.lock();
+            programmedMeterReadLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(deviceId);
             if (metersOnDevice == null || metersOnDevice.isEmpty()) {
                 return false;
             }
-            return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile));
+            return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile)
+                    && md.meterStatus.equals(MeterStatus.ADDED));
         } finally {
-            programmedMeterLock.unlock();
+            programmedMeterReadLock.unlock();
         }
     }
 
     public boolean hasPendingMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile) {
         try {
-            programmedMeterLock.lock();
+            programmedMeterReadLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(deviceId);
             if (metersOnDevice == null || metersOnDevice.isEmpty()) {
                 return false;
@@ -156,18 +168,17 @@ public class OltMeterService implements OltMeterServiceInterface {
             return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile)
                     && md.meterStatus.equals(MeterStatus.PENDING_ADD));
         } finally {
-            programmedMeterLock.unlock();
+            programmedMeterReadLock.unlock();
         }
     }
 
     public MeterId getMeterIdForBandwidthProfile(DeviceId deviceId, String bpId) {
         try {
-            programmedMeterLock.lock();
+            programmedMeterReadLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(deviceId);
             if (metersOnDevice == null || metersOnDevice.isEmpty()) {
                 return null;
             }
-            log.info("found meters for device: {}", metersOnDevice);
             MeterData meter = metersOnDevice.stream().
                     filter(md -> md.bandwidthProfile.equals(bpId) && md.meterStatus.equals(MeterStatus.ADDED))
                     .findFirst().orElse(null);
@@ -176,7 +187,7 @@ public class OltMeterService implements OltMeterServiceInterface {
             }
             return null;
         } finally {
-            programmedMeterLock.unlock();
+            programmedMeterReadLock.unlock();
         }
     }
 
@@ -185,10 +196,15 @@ public class OltMeterService implements OltMeterServiceInterface {
      *
      * @param deviceId the DeviceId
      * @param bpId     the BandwidthProfile ID
+     * @throws Exception if the meter can't be created
      */
-    public void createMeterForBp(DeviceId deviceId, String bpId) {
+    public void createMeterForBp(DeviceId deviceId, String bpId) throws Exception {
         BandwidthProfileInformation bpInfo = getBandwidthProfileInformation(bpId);
-        log.info("Creating meter for {}", bpInfo);
+        if (bpInfo == null) {
+            throw new Exception(String.format("BandwidthProfile %s information not found in sadis", bpId));
+        }
+
+        log.info("Creating meter for {} on device {}", bpInfo, deviceId);
 
         List<Band> meterBands = createMeterBands(bpInfo);
 
@@ -229,7 +245,7 @@ public class OltMeterService implements OltMeterServiceInterface {
         if (!pendingMeters.contains(request)) {
 
             // adding meter in pending state to the programmedMeter map
-            programmedMeterLock.lock();
+            programmedMeterWriteLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(request.deviceId);
             if (metersOnDevice == null) {
                 metersOnDevice = new LinkedList<>();
@@ -243,7 +259,7 @@ public class OltMeterService implements OltMeterServiceInterface {
             );
             metersOnDevice.add(meterData);
             programmedMeters.put(deviceId, metersOnDevice);
-            programmedMeterLock.unlock();
+            programmedMeterWriteLock.unlock();
 
             // enqueue the request
             pendingMeters.add(request);
@@ -253,16 +269,14 @@ public class OltMeterService implements OltMeterServiceInterface {
             // so that we can store the meterId
             meterFuture.thenAccept(error -> {
                 if (error != null) {
-                    // NOTE if the meter installation fails the meter is left in the
+                    // NOTE if the meter installation fails add the meter back on the
                     // queue, thus we'll try to submit it again
                     return;
                 }
-                // if everything is fine remove the meterRequest from the queue
-                pendingMeters.remove(request);
-                log.info("Remaining meters: {}", pendingMeters.size());
+
                 // then update the map with the MeterId
                 try {
-                    programmedMeterLock.lock();
+                    programmedMeterWriteLock.lock();
                     List<MeterData> existingMeters = programmedMeters.get(request.deviceId);
 
                     // update the meter to ADDED and add the CellId to it
@@ -286,10 +300,8 @@ public class OltMeterService implements OltMeterServiceInterface {
 
                     existingMeters.set(idx, paMeter);
                     programmedMeters.put(request.deviceId, existingMeters);
-
-                    log.info("updated meters for device: {}", programmedMeters.get(request.deviceId));
                 } finally {
-                    programmedMeterLock.unlock();
+                    programmedMeterWriteLock.unlock();
                 }
             });
         }
@@ -371,6 +383,10 @@ public class OltMeterService implements OltMeterServiceInterface {
                         request.deviceId, request.bandwidthProfile);
                 Meter meter = meterService.submit(request.meterRequest);
 
+                // the installation request for the meter has been submitted
+                // remove it from the queue
+                pendingMeters.remove(request);
+
                 // update the AtomicReference in the request so that we update the map
                 // once the install future completes
                 request.meterIdRef.set(meter.id());
@@ -382,6 +398,58 @@ public class OltMeterService implements OltMeterServiceInterface {
             } catch (Exception e) {
                 continue;
             }
+        }
+    }
+
+    private class InternalMeterListener implements MeterListener {
+
+        @Override
+        public void event(MeterEvent meterEvent) {
+            pendingRemovalMetersExecutor.execute(() -> {
+
+                log.info("Received meter event {}", meterEvent);
+                switch (meterEvent.type()) {
+                    case METER_REFERENCE_COUNT_ZERO:
+                        Meter meter = meterEvent.subject();
+                        if (appId.equals(meter.appId())) {
+                            log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
+                            if (deleteMeters) {
+                                // only delete the meters if the app is configured to do so
+                                // deleteMeter(meter.deviceId(), meter.id());
+                            }
+                        }
+                    default:
+                        break;
+                }
+            });
+        }
+    }
+
+    private void deleteMeter(DeviceId deviceId, MeterId meterId) {
+        Meter meter = meterService.getMeter(deviceId, meterId);
+        if (meter != null) {
+            MeterRequest meterRequest = DefaultMeterRequest.builder()
+                    .withBands(meter.bands())
+                    .withUnit(meter.unit())
+                    .forDevice(deviceId)
+                    .fromApp(appId)
+                    .burst()
+                    .remove();
+
+            meterService.withdraw(meterRequest, meterId);
+        }
+
+        // remove the meter from local caching
+        try {
+            programmedMeterWriteLock.lock();
+            List<MeterData> existingMeters = programmedMeters.get(deviceId);
+
+            List<MeterData> newMeters = existingMeters.stream().filter(md -> {
+                return md.meterId.equals(meterId);
+            }).collect(Collectors.toList());
+            programmedMeters.put(deviceId, newMeters);
+        } finally {
+            programmedMeterWriteLock.unlock();
         }
     }
 

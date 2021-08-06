@@ -64,8 +64,13 @@ public class OltDeviceListener implements DeviceListener {
                 // NOTE this may need to be handled on DEVICE_REMOVE as we don't disable the NNI
                 log.warn("TODO handle NNI flows remove");
             } else {
+                // TODO we have to check wether a subscriber is provisioned on that port ot not
+                // in order to correctly format the DiscoveredSubscriber message
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                         DiscoveredSubscriber.Status.REMOVED, false);
+
+                // NOTE we may want to avoid this message if no flows are added to that port
+                // eg: no default EAPOL or no provision subscriber
                 if (!discoveredSubscribersQueue.contains(sub)) {
                     log.info("Adding subscriber to queue: {}/{} with status {}",
                             sub.device.id(), sub.port.number(), sub.status);

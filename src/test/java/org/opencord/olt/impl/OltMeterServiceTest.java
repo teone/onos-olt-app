@@ -7,6 +7,7 @@ import org.onosproject.cfg.ComponentConfigAdapter;
 import org.onosproject.core.CoreServiceAdapter;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.meter.MeterId;
+import org.onosproject.net.meter.MeterServiceAdapter;
 import org.onosproject.store.service.StorageServiceAdapter;
 
 import java.util.LinkedList;
@@ -24,6 +25,7 @@ public class OltMeterServiceTest extends OltTestHelpers {
         oltMeterService.coreService = new CoreServiceAdapter();
         oltMeterService.storageService = new StorageServiceAdapter();
         oltMeterService.sadisService = new MockSadisService();
+        oltMeterService.meterService = new MeterServiceAdapter();
         oltMeterService.activate();
     }
 
@@ -43,7 +45,7 @@ public class OltMeterServiceTest extends OltTestHelpers {
         oltMeterService.programmedMeters.put(deviceId, meters);
 
         assert oltMeterService.hasMeterByBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT);
-        assert oltMeterService.hasMeterByBandwidthProfile(deviceId, "pending");
+        assert !oltMeterService.hasMeterByBandwidthProfile(deviceId, "pending");
         assert !oltMeterService.hasMeterByBandwidthProfile(deviceId, "someBandwidthProfile");
 
         assert !oltMeterService.hasMeterByBandwidthProfile(DeviceId.deviceId("bar"), DEFAULT_BP_ID_DEFAULT);

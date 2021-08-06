@@ -160,42 +160,26 @@ public class Olt {
         while (true) {
             if (!discoveredSubscribersQueue.isEmpty()) {
                 DiscoveredSubscriber sub = discoveredSubscribersQueue.peek();
-                log.info("Processing discovered subscriber on port {}/{}", sub.device.id(), sub.port.number());
+                log.info("Processing discovered subscriber on port {}/{} with status {}",
+                        sub.device.id(), sub.port.number(), sub.status);
 
-                if (sub.status == DiscoveredSubscriber.Status.ADDED) {
-                    if (sub.provisionSubscriber) {
-                        try {
-                            oltFlowService.handleSubscriberFlows(sub);
-                            discoveredSubscribersQueue.remove(sub);
-                        } catch (Exception e) {
-                            log.error(e.getMessage());
-                            continue;
-                        }
-                    } else {
-                        try {
-                            oltFlowService.handleBasicPortFlows(
-                                    sadisService.getSubscriberInfoService(), sub, defaultBpId);
-                            discoveredSubscribersQueue.remove(sub);
-                        } catch (Exception e) {
-                            // we get an exception if something is not ready and we'll need
-                            // to retry later (eg: the meter is still being installed)
-                            log.error("Processing of subscriber {}/{} postponed: {}",
-                                    sub.device.id(), sub.port.number(), e.getMessage());
-                            try {
-                                TimeUnit.MILLISECONDS.sleep(500);
-                            } catch (Exception ex) {
-                                continue;
-                            }
-                            continue;
-                        }
-                    }
-
-                } else if (sub.status == DiscoveredSubscriber.Status.REMOVED) {
-                    log.warn("currently not handling removed subscribers, removing it from queue: {}/{}",
-                            sub.device.id(), sub.port.number());
+                if (sub.provisionSubscriber) {
+                    // this is a provision subscriber call
+                    log.error("currently not handling subscriber provisioning");
                     discoveredSubscribersQueue.remove(sub);
+                } else {
+                    // this is a port event (ENABLED/DISABLED)
+                    // means no subscriber was provisioned on that port
+                    try {
+                        oltFlowService.handleBasicPortFlows(sub, defaultBpId);
+                        discoveredSubscribersQueue.remove(sub);
+                    } catch (Exception e) {
+                        log.error("Processing of port {}/{} postponed: {}",
+                                sub.device.id(), sub.port.number(), e.getMessage());
+                    }
                 }
             }
+
             // temporary code to slow down processing while testing,
             // to be removed
             try {

@@ -1,6 +1,7 @@
 package org.opencord.olt.impl;
 
 import com.google.common.collect.Maps;
+import org.mockito.ArgumentMatcher;
 import org.onlab.packet.Ip4Address;
 import org.onlab.packet.MacAddress;
 import org.onosproject.net.AnnotationKeys;
@@ -9,6 +10,7 @@ import org.onosproject.net.Device;
 import org.onosproject.net.Element;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
+import org.onosproject.net.flowobjective.FilteringObjective;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
@@ -26,6 +28,28 @@ public class OltTestHelpers {
 
     public static String nniPrefix = "nni-";
 
+    protected class FilteringObjectiveMatcher extends ArgumentMatcher<FilteringObjective> {
+
+        private FilteringObjective left;
+
+        public FilteringObjectiveMatcher(FilteringObjective left) {
+            this.left = left;
+        }
+
+        @Override
+        public boolean matches(Object right) {
+            // NOTE this matcher can be improved
+            FilteringObjective r = (FilteringObjective) right;
+            return left.type().equals(r.type()) &&
+                    left.key().equals(r.key()) &&
+                    left.conditions().equals(r.conditions()) &&
+                    left.appId().equals(r.appId()) &&
+                    left.priority() == r.priority();
+        }
+    }
+
+    // use mockito
+    @Deprecated
     protected class MockOltDeviceServiceService implements OltDeviceServiceInterface {
 
         public boolean isOlt(Device device) {
@@ -86,6 +110,8 @@ public class OltTestHelpers {
         }
     }
 
+    // use mockito instead
+    @Deprecated
     protected class MockSadisService implements SadisService {
 
         @Override
@@ -99,6 +125,8 @@ public class OltTestHelpers {
         }
     }
 
+    // use mockito
+    @Deprecated
     private class MockBpService implements BaseInformationService<BandwidthProfileInformation> {
         @Override
         public void clearLocalData() {
@@ -126,6 +154,8 @@ public class OltTestHelpers {
         }
     }
 
+    // use mockito
+    @Deprecated
     private class MockSubService implements BaseInformationService<SubscriberAndDeviceInformation> {
         MockSubscriberAndDeviceInformation sub =
                 new MockSubscriberAndDeviceInformation(CLIENT_NAS_PORT_ID,
@@ -155,6 +185,8 @@ public class OltTestHelpers {
         }
     }
 
+    // use mockito
+    @Deprecated
     private class MockSubscriberAndDeviceInformation extends SubscriberAndDeviceInformation {
 
         MockSubscriberAndDeviceInformation(String id, String nasPortId,

@@ -38,7 +38,6 @@ import java.util.Properties;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static org.onlab.util.Tools.get;
-import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_TP_ID;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_TP_ID_DEFAULT;
 import static org.opencord.olt.impl.OsgiPropertyConstants.ENABLE_DHCP_ON_NNI;
@@ -124,6 +123,11 @@ public class OltFlowService implements OltFlowServiceInterface {
      **/
     protected int defaultTechProfileId = DEFAULT_TP_ID_DEFAULT;
 
+    public enum FlowAction {
+        ADD,
+        REMOVE,
+    }
+
     @Activate
     public void activate() {
         bpService = sadisService.getBandwidthProfileService();
@@ -137,6 +141,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     public void deactivate() {
         cfgService.unregisterProperties(getClass(), false);
     }
+
     @Modified
     public void modified(ComponentContext context) {
 
@@ -179,32 +184,45 @@ public class OltFlowService implements OltFlowServiceInterface {
                         "enableDhcpV6:{}, enableIgmpOnNni:{}, " +
                         "enableEapol:{}, enablePppoe:{}, defaultTechProfileId:{}",
                 enableDhcpOnNni, enableDhcpV4, enableDhcpV6,
-                enableIgmpOnNni, enableEapol,  enablePppoe,
+                enableIgmpOnNni, enableEapol, enablePppoe,
                 defaultTechProfileId);
 
     }
 
     @Override
-    public void handleBasicPortFlows(BaseInformationService<SubscriberAndDeviceInformation> subsService,
-                                     DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
+    public void handleBasicPortFlows(DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
 
         // we only need to something if EAPOL is enabled
         if (!enableEapol) {
             return;
         }
 
-        if (!oltMeterService.hasMeterByBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT)) {
-            log.info("Missing meter for Bandwidth profile {} on device {}", DEFAULT_BP_ID_DEFAULT, sub.device.id());
+        if (sub.status == DiscoveredSubscriber.Status.ADDED) {
+            addDefaultFlows(sub, bandwidthProfile);
+        } else if (sub.status == DiscoveredSubscriber.Status.REMOVED) {
+            removeDefaultFlows(sub, bandwidthProfile);
+        }
 
-            if (!oltMeterService.hasPendingMeterByBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT)) {
-                oltMeterService.createMeterForBp(sub.device.id(), DEFAULT_BP_ID_DEFAULT);
+    }
+
+    private void addDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
+        if (!oltMeterService.hasMeterByBandwidthProfile(sub.device.id(), bandwidthProfile)) {
+            log.info("Missing meter for Bandwidth profile {} on device {}", bandwidthProfile, sub.device.id());
+
+            if (!oltMeterService.hasPendingMeterByBandwidthProfile(sub.device.id(), bandwidthProfile)) {
+                oltMeterService.createMeterForBp(sub.device.id(), bandwidthProfile);
             }
             throw new Exception(String.format("Meter is not yet available for %s on device %s",
-                    DEFAULT_BP_ID_DEFAULT, sub.device.id()));
+                    bandwidthProfile, sub.device.id()));
         } else {
             // TODO handle flow installation error
-            installDefaultEapolFlow(sub);
+            handleDefaultEapolFlow(sub, bandwidthProfile, FlowAction.ADD);
         }
+    }
+
+    private void removeDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
+        // NOTE that we are not checking for meters as they must have been created to install the flow in first place
+        handleDefaultEapolFlow(sub, bandwidthProfile, FlowAction.REMOVE);
     }
 
     @Override
@@ -212,58 +230,85 @@ public class OltFlowService implements OltFlowServiceInterface {
         log.warn("handleSubscriberFlows unimplemented");
     }
 
-    private void installDefaultEapolFlow(DiscoveredSubscriber sub) throws Exception {
-        SubscriberAndDeviceInformation si = subsService.get(sub.port.annotations().value(AnnotationKeys.PORT_NAME));
-        if (si == null) {
-            throw new Exception(String.format("Subscriber %s information not found in sadis",
-                    sub.port.annotations().value(AnnotationKeys.PORT_NAME)));
-        }
+    // NOTE this method can most likely be generalized to:
+    // - install or remove flows
+    // - handle EAPOL flows with customer VLANs
+    private void handleDefaultEapolFlow(DiscoveredSubscriber sub, String bandwidthProfile, FlowAction action)
+            throws Exception {
+        // NOTE we'll need to check in sadis once we install using the customer VLANs
+        // SubscriberAndDeviceInformation si = subsService.get(sub.port.annotations().value(AnnotationKeys.PORT_NAME));
+        // if (si == null) {
+        //     throw new Exception(String.format("Subscriber %s information not found in sadis",
+        //             sub.port.annotations().value(AnnotationKeys.PORT_NAME)));
+        // }
 
         DefaultFilteringObjective.Builder filterBuilder = DefaultFilteringObjective.builder();
         TrafficTreatment.Builder treatmentBuilder = DefaultTrafficTreatment.builder();
 
         int techProfileId = getDefaultTechProfileId(sub.port);
-        MeterId meterId = oltMeterService.getMeterIdForBandwidthProfile(sub.device.id(), DEFAULT_BP_ID_DEFAULT);
+        MeterId meterId = oltMeterService.getMeterIdForBandwidthProfile(sub.device.id(), bandwidthProfile);
 
-        if (meterId == null) {
+        if (meterId == null && action == FlowAction.ADD) {
+            // NOTE this should NEVER happen
+            // in the delete case the meter should still be there as we remove them when no flows are pointing to them
             throw new Exception(String.format("MeterId is null for BandwidthProfile %s on devices %s",
-                    DEFAULT_BP_ID_DEFAULT, sub.device.id()));
+                    bandwidthProfile, sub.device.id()));
         }
 
-        log.info("Installing default EAPOL flow for {}/{} and meterId {}",
-                sub.device.id(), sub.port.number(), meterId);
+        log.info("Preforming {} on default EAPOL flow for {}/{} and meterId {}",
+                action, sub.device.id(), sub.port.number(), meterId);
 
-        TrafficTreatment treatment = treatmentBuilder
-                .writeMetadata(createTechProfValueForWm(
-                        VlanId.vlanId(EAPOL_DEFAULT_VLAN),
-                        techProfileId, meterId), 0)
-                .setOutput(PortNumber.CONTROLLER)
-                .pushVlan()
-                .setVlanId(VlanId.vlanId(EAPOL_DEFAULT_VLAN))
-                .build();
+        FilteringObjective.Builder eapolAction;
 
-        FilteringObjective eapol = filterBuilder.permit()
+        if (action == FlowAction.ADD) {
+            eapolAction = filterBuilder.permit();
+        } else if (action == FlowAction.REMOVE) {
+            eapolAction = filterBuilder.deny();
+        } else {
+            throw new Exception(String.format("Operation %s not supported", action));
+        }
+
+        FilteringObjective.Builder baseEapol = eapolAction
                 .withKey(Criteria.matchInPort(sub.port.number()))
-                .addCondition(Criteria.matchEthType(EthType.EtherType.EAPOL.ethType()))
-                .withMeta(treatment)
+                .addCondition(Criteria.matchEthType(EthType.EtherType.EAPOL.ethType()));
+
+        // NOTE we only need to add the treatment to install the flow,
+        // we can remove it based in the match
+        FilteringObjective.Builder eapol;
+        if (action == FlowAction.ADD) {
+            TrafficTreatment treatment = treatmentBuilder
+                    .writeMetadata(createTechProfValueForWm(
+                            VlanId.vlanId(EAPOL_DEFAULT_VLAN),
+                            techProfileId, meterId), 0)
+                    .setOutput(PortNumber.CONTROLLER)
+                    .pushVlan()
+                    .setVlanId(VlanId.vlanId(EAPOL_DEFAULT_VLAN))
+                    .build();
+            eapol = baseEapol
+                    .withMeta(treatment);
+        } else {
+            eapol = baseEapol;
+        }
+
+        FilteringObjective eapolObjective = eapol
                 .fromApp(appId)
                 .withPriority(MAX_PRIORITY)
                 .add(new ObjectiveContext() {
                     @Override
                     public void onSuccess(Objective objective) {
-                        log.info("EAPOL flow installed for {}/{} with details {}",
-                                sub.device.id(), sub.port.number(), objective);
+                        log.info("EAPOL flow {} for {}/{} with details {}",
+                                action, sub.device.id(), sub.port.number(), objective);
                     }
 
                     @Override
                     public void onError(Objective objective, ObjectiveError error) {
-                        log.error("Cannot install eapol flow: {}", error);
+                        log.error("Cannot {} eapol flow: {}", action, error);
                     }
                 });
 
-        log.info("Created EAPOL flow for {}/{}: {}", sub.device.id(), sub.port.number(), eapol);
+        log.info("Created EAPOL filter to {} for {}/{}: {}", action, sub.device.id(), sub.port.number(), eapol);
 
-        flowObjectiveService.filter(sub.device.id(), eapol);
+        flowObjectiveService.filter(sub.device.id(), eapolObjective);
     }
 
     private boolean checkSadisRunning() {

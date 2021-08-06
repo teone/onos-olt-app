@@ -18,7 +18,6 @@ package org.opencord.olt.impl;
 import org.junit.After;
 import org.junit.Before;
 import org.junit.Test;
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.runner.RunWith;
 import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
@@ -77,16 +76,14 @@ public class OltTest extends OltTestHelpers {
         component.discoveredSubscribersQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
         component.discoveredSubscriberExecutor = Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                 "discovered-cp-%d", log));
-        component.oltFlowService = Mockito.spy(new OltFlowService());
+        component.oltFlowService = Mockito.mock(OltFlowService.class);
         component.sadisService = new MockSadisService();
-        component.activate();
-    }
 
-    @BeforeEach
-    public void beforeEach() {
         // reset the spy on oltFlowService
         reset(component.oltFlowService);
         component.discoveredSubscribersQueue.clear();
+
+        component.activate();
     }
 
     @After
@@ -102,8 +99,8 @@ public class OltTest extends OltTestHelpers {
 
         // check that we're calling the correct method
         TimeUnit.SECONDS.sleep(1);
-        verify(component.oltFlowService, times(1)).handleBasicPortFlows(any(), eq(sub),
-                DEFAULT_BP_ID_DEFAULT);
+        verify(component.oltFlowService, times(1)).handleBasicPortFlows(eq(sub),
+                eq(DEFAULT_BP_ID_DEFAULT));
 
         // check if the method doesn't throw an exception we're removing the subscriber from the queue
         assert component.discoveredSubscribersQueue.isEmpty();
@@ -111,8 +108,8 @@ public class OltTest extends OltTestHelpers {
 
     @Test
     public void testProcessDiscoveredSubscribersBasicPortException() throws Exception {
-        doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(), any(),
-                DEFAULT_BP_ID_DEFAULT);
+        doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(),
+                eq(DEFAULT_BP_ID_DEFAULT));
 
         // adding the discovered subscriber to the queue
         component.discoveredSubscribersQueue.add(sub);
@@ -120,7 +117,7 @@ public class OltTest extends OltTestHelpers {
         // check that we're calling the correct method,
         // since the subscriber is not removed from the queue we're calling the method multiple times
         TimeUnit.SECONDS.sleep(1);
-        verify(component.oltFlowService, atLeastOnce()).handleBasicPortFlows(any(), eq(sub), DEFAULT_BP_ID_DEFAULT);
+        verify(component.oltFlowService, atLeastOnce()).handleBasicPortFlows(eq(sub), eq(DEFAULT_BP_ID_DEFAULT));
 
         // check if the method throws an exception we're not removing the subscriber from the queue
         assert component.discoveredSubscribersQueue.size() == 1;
