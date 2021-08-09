@@ -277,6 +277,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         FilteringObjective.Builder eapol;
         if (action == FlowAction.ADD) {
             TrafficTreatment treatment = treatmentBuilder
+                    .meter(meterId)
                     .writeMetadata(createTechProfValueForWm(
                             VlanId.vlanId(EAPOL_DEFAULT_VLAN),
                             techProfileId, meterId), 0)
