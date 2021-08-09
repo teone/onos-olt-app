@@ -11,13 +11,16 @@ import java.util.concurrent.BlockingQueue;
 
 public class OltDeviceListener implements DeviceListener {
     private final Logger log = LoggerFactory.getLogger(getClass());
-    private final OltDeviceServiceInterface oltDevice;
+    protected final OltDeviceServiceInterface oltDevice;
+    protected final OltFlowServiceInterface oltFlowService;
     private final BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue;
 
     public OltDeviceListener(OltDeviceServiceInterface oltDevice,
+                             OltFlowServiceInterface oltFlowService,
                              BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue) {
-        this.discoveredSubscribersQueue = discoveredSubscribersQueue;
         this.oltDevice = oltDevice;
+        this.oltFlowService = oltFlowService;
+        this.discoveredSubscribersQueue = discoveredSubscribersQueue;
     }
 
     @Override
@@ -64,18 +67,19 @@ public class OltDeviceListener implements DeviceListener {
                 // NOTE this may need to be handled on DEVICE_REMOVE as we don't disable the NNI
                 log.warn("TODO handle NNI flows remove");
             } else {
-                // TODO we have to check wether a subscriber is provisioned on that port ot not
-                // in order to correctly format the DiscoveredSubscriber message
-                DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
-                        DiscoveredSubscriber.Status.REMOVED, false);
 
-                // NOTE we may want to avoid this message if no flows are added to that port
-                // eg: no default EAPOL or no provision subscriber
-                if (!discoveredSubscribersQueue.contains(sub)) {
-                    log.info("Adding subscriber to queue: {}/{} with status {}",
-                            sub.device.id(), sub.port.number(), sub.status);
-                    discoveredSubscribersQueue.add(sub);
+                if (oltFlowService.hasDefaultEapol(device.id(), port.number())) {
+                    DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                            DiscoveredSubscriber.Status.REMOVED, false);
+
+                    if (!discoveredSubscribersQueue.contains(sub)) {
+                        log.info("Adding subscriber to queue: {}/{} with status {}",
+                                sub.device.id(), sub.port.number(), sub.status);
+                        discoveredSubscribersQueue.add(sub);
+                    }
                 }
+                // TODO we need to check if we have subcriber on this port
+                // and if that's the case we should add an entry to the queue
             }
         }
     }

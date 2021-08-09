@@ -2,6 +2,7 @@ package org.opencord.olt.impl;
 
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.onlab.packet.ChassisId;
 import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.DefaultAnnotations;
@@ -16,6 +17,8 @@ import org.onosproject.net.provider.ProviderId;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
 
+import static org.mockito.Mockito.doReturn;
+
 public class OltDeviceListenerTest extends OltTestHelpers {
     private OltDeviceListener oltDeviceListener;
 
@@ -29,7 +32,8 @@ public class OltDeviceListenerTest extends OltTestHelpers {
     @Before
     public void setUp() {
         MockOltDeviceServiceService mockOltDeviceService = new MockOltDeviceServiceService();
-        oltDeviceListener = new OltDeviceListener(mockOltDeviceService, discoveredSubscribersQueue);
+        OltFlowServiceInterface oltFlowService = Mockito.mock(OltFlowService.class);
+        oltDeviceListener = new OltDeviceListener(mockOltDeviceService, oltFlowService, discoveredSubscribersQueue);
     }
 
     @Test
@@ -48,14 +52,24 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         DiscoveredSubscriber sub;
         // there are few cases we need to test in the UNI port case:
         // - [X] UNI port added in disabled state
+        // - [X] UNI port added in disabled state (with default EAPOL installed)
         // - UNI port added in enabled state
         // - [X] UNI port updated to enabled state
         // - UNI port updated to disabled state
         // - UNI port removed (assumes it's disabled state)
 
-        Port uniAddedDisabled = new OltPort(false, PortNumber.portNumber(16),
+        PortNumber uniPortNumber = PortNumber.portNumber(16);
+        Port uniAddedDisabled = new OltPort(false, uniPortNumber,
                 DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
         DeviceEvent uniAddedDisabledEvent = new DeviceEvent(DeviceEvent.Type.PORT_ADDED, testDevice, uniAddedDisabled);
+
+        // if the port does not have default EAPOL we should not generate an event
+        oltDeviceListener.event(uniAddedDisabledEvent);
+        assert discoveredSubscribersQueue.isEmpty();
+
+        // if the port has default EAPOL then create an entry in the queue to remove it
+        doReturn(true).when(oltDeviceListener.oltFlowService)
+                .hasDefaultEapol(testDevice.id(), uniPortNumber);
         oltDeviceListener.event(uniAddedDisabledEvent);
 
         assert !discoveredSubscribersQueue.isEmpty();

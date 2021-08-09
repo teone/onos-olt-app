@@ -1,6 +1,7 @@
 package org.opencord.olt.impl;
 
 import org.junit.After;
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -11,6 +12,7 @@ import org.onosproject.core.ApplicationId;
 import org.onosproject.core.CoreServiceAdapter;
 import org.onosproject.core.DefaultApplicationId;
 import org.onosproject.net.AnnotationKeys;
+import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.DefaultAnnotations;
 import org.onosproject.net.DefaultDevice;
 import org.onosproject.net.Device;
@@ -68,6 +70,32 @@ public class OltFlowServiceTest extends OltTestHelpers {
     @After
     public void tearDown() {
         oltFlowService.deactivate();
+    }
+
+    @Test
+    public void testHasDefaultEapol() {
+        DeviceId deviceId = DeviceId.deviceId("test-device");
+        ConnectPoint cpWithStatus = new ConnectPoint(deviceId, PortNumber.portNumber(16));
+
+        OltFlowService.OltPortStatus portStatusAdded = new OltFlowService.OltPortStatus(
+                OltFlowService.OltFlowsStatus.ADDED,
+                OltFlowService.OltFlowsStatus.NONE,
+                null
+        );
+
+        OltFlowService.OltPortStatus portStatusRemoved = new OltFlowService.OltPortStatus(
+                OltFlowService.OltFlowsStatus.REMOVED,
+                OltFlowService.OltFlowsStatus.NONE,
+                null
+        );
+
+        oltFlowService.cpStatus.put(cpWithStatus, portStatusAdded);
+        Assert.assertTrue(oltFlowService.hasDefaultEapol(deviceId, PortNumber.portNumber(16)));
+
+        oltFlowService.cpStatus.put(cpWithStatus, portStatusRemoved);
+        Assert.assertFalse(oltFlowService.hasDefaultEapol(deviceId, PortNumber.portNumber(16)));
+
+        Assert.assertFalse(oltFlowService.hasDefaultEapol(deviceId, PortNumber.portNumber(17)));
     }
 
     @Test

@@ -1,12 +1,15 @@
 package org.opencord.olt.impl;
 
 import org.onlab.packet.EthType;
+import org.onlab.packet.MacAddress;
 import org.onlab.packet.VlanId;
 import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.core.ApplicationId;
 import org.onosproject.core.CoreService;
 import org.onosproject.net.AnnotationKeys;
+import org.onosproject.net.ConnectPoint;
+import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
@@ -34,7 +37,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.Dictionary;
+import java.util.HashMap;
 import java.util.Properties;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static org.onlab.util.Tools.get;
@@ -89,6 +95,15 @@ public class OltFlowService implements OltFlowServiceInterface {
     private final Logger log = LoggerFactory.getLogger(getClass());
 
     /**
+     * Connect Point status map.
+     * Used to keep track of which cp has flows that needs to be removed when the status changes.
+     */
+    protected HashMap<ConnectPoint, OltPortStatus> cpStatus;
+    private final ReentrantReadWriteLock cpStatusLock = new ReentrantReadWriteLock();
+    private final Lock cpStatusWriteLock = cpStatusLock.writeLock();
+    private final Lock cpStatusReadLock = cpStatusLock.readLock();
+
+    /**
      * Create DHCP trap flow on NNI port(s).
      */
     protected boolean enableDhcpOnNni = ENABLE_DHCP_ON_NNI_DEFAULT;
@@ -134,6 +149,10 @@ public class OltFlowService implements OltFlowServiceInterface {
         subsService = sadisService.getSubscriberInfoService();
         cfgService.registerProperties(getClass());
         appId = coreService.registerApplication(APP_NAME);
+
+        // TODO this should be a distributed map
+        cpStatus = new HashMap<>();
+
         log.info("Activated");
     }
 
@@ -217,17 +236,49 @@ public class OltFlowService implements OltFlowServiceInterface {
         } else {
             // TODO handle flow installation error
             handleDefaultEapolFlow(sub, bandwidthProfile, FlowAction.ADD);
+
+            try {
+                cpStatusWriteLock.lock();
+                ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+                OltPortStatus status = new OltPortStatus(OltFlowsStatus.PENDING_ADD, OltFlowsStatus.NONE, null);
+                cpStatus.put(cp, status);
+            } finally {
+                cpStatusWriteLock.unlock();
+            }
         }
     }
 
     private void removeDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
         // NOTE that we are not checking for meters as they must have been created to install the flow in first place
         handleDefaultEapolFlow(sub, bandwidthProfile, FlowAction.REMOVE);
+
+        try {
+            cpStatusWriteLock.lock();
+            ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+            OltPortStatus status = new OltPortStatus(OltFlowsStatus.PENDING_REMOVE, OltFlowsStatus.NONE, null);
+            cpStatus.put(cp, status);
+        } finally {
+            cpStatusWriteLock.unlock();
+        }
     }
 
     @Override
     public void handleSubscriberFlows(DiscoveredSubscriber sub) {
         log.warn("handleSubscriberFlows unimplemented");
+    }
+
+    public boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber) {
+        try {
+            cpStatusReadLock.lock();
+            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
+            OltPortStatus status = cpStatus.get(cp);
+            if (status == null) {
+                return false;
+            }
+            return status.eapolStatus == OltFlowsStatus.ADDED || status.eapolStatus == OltFlowsStatus.PENDING_ADD;
+        } finally {
+            cpStatusReadLock.unlock();
+        }
     }
 
     // NOTE this method can most likely be generalized to:
@@ -248,9 +299,9 @@ public class OltFlowService implements OltFlowServiceInterface {
         int techProfileId = getDefaultTechProfileId(sub.port);
         MeterId meterId = oltMeterService.getMeterIdForBandwidthProfile(sub.device.id(), bandwidthProfile);
 
-        if (meterId == null && action == FlowAction.ADD) {
-            // NOTE this should NEVER happen
-            // in the delete case the meter should still be there as we remove them when no flows are pointing to them
+        // in the delete case the meter should still be there as we remove
+        // the meters only if no flows are pointing to them
+        if (meterId == null) {
             throw new Exception(String.format("MeterId is null for BandwidthProfile %s on devices %s",
                     bandwidthProfile, sub.device.id()));
         }
@@ -275,21 +326,18 @@ public class OltFlowService implements OltFlowServiceInterface {
         // NOTE we only need to add the treatment to install the flow,
         // we can remove it based in the match
         FilteringObjective.Builder eapol;
-        if (action == FlowAction.ADD) {
-            TrafficTreatment treatment = treatmentBuilder
-                    .meter(meterId)
-                    .writeMetadata(createTechProfValueForWm(
-                            VlanId.vlanId(EAPOL_DEFAULT_VLAN),
-                            techProfileId, meterId), 0)
-                    .setOutput(PortNumber.CONTROLLER)
-                    .pushVlan()
-                    .setVlanId(VlanId.vlanId(EAPOL_DEFAULT_VLAN))
-                    .build();
-            eapol = baseEapol
-                    .withMeta(treatment);
-        } else {
-            eapol = baseEapol;
-        }
+
+        TrafficTreatment treatment = treatmentBuilder
+                .meter(meterId)
+                .writeMetadata(createTechProfValueForWm(
+                        VlanId.vlanId(EAPOL_DEFAULT_VLAN),
+                        techProfileId, meterId), 0)
+                .setOutput(PortNumber.CONTROLLER)
+                .pushVlan()
+                .setVlanId(VlanId.vlanId(EAPOL_DEFAULT_VLAN))
+                .build();
+        eapol = baseEapol
+                .withMeta(treatment);
 
         FilteringObjective eapolObjective = eapol
                 .fromApp(appId)
@@ -299,11 +347,35 @@ public class OltFlowService implements OltFlowServiceInterface {
                     public void onSuccess(Objective objective) {
                         log.info("EAPOL flow {} for {}/{} with details {}",
                                 action, sub.device.id(), sub.port.number(), objective);
+
+                        // update the flow status in cpStatus map
+                        try {
+                            cpStatusWriteLock.lock();
+                            ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+                            OltPortStatus status = cpStatus.get(cp);
+                            if (action.equals(FlowAction.ADD)) {
+                                status.eapolStatus = OltFlowsStatus.ADDED;
+                            } else {
+                                status.eapolStatus = OltFlowsStatus.REMOVED;
+                            }
+                            cpStatus.put(cp, status);
+                        } finally {
+                            cpStatusWriteLock.unlock();
+                        }
                     }
 
                     @Override
                     public void onError(Objective objective, ObjectiveError error) {
                         log.error("Cannot {} eapol flow: {}", action, error);
+                        try {
+                            cpStatusWriteLock.lock();
+                            ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+                            OltPortStatus status = cpStatus.get(cp);
+                            status.eapolStatus = OltFlowsStatus.ERROR;
+                            cpStatus.put(cp, status);
+                        } finally {
+                            cpStatusWriteLock.unlock();
+                        }
                     }
                 });
 
@@ -345,6 +417,27 @@ public class OltFlowService implements OltFlowServiceInterface {
             return writeMetadata;
         } else {
             return writeMetadata | upstreamOltMeterId.id();
+        }
+    }
+
+    public enum OltFlowsStatus {
+        NONE,
+        PENDING_ADD,
+        ADDED,
+        PENDING_REMOVE,
+        REMOVED,
+        ERROR
+    }
+
+    protected static class OltPortStatus {
+        public OltFlowsStatus eapolStatus;
+        public OltFlowsStatus subscriberFlowsStatus;
+        public MacAddress macAddress;
+
+        public OltPortStatus(OltFlowsStatus eapolStatus, OltFlowsStatus subscriberFlowsStatus, MacAddress macAddress) {
+            this.eapolStatus = eapolStatus;
+            this.subscriberFlowsStatus = subscriberFlowsStatus;
+            this.macAddress = macAddress;
         }
     }
 }

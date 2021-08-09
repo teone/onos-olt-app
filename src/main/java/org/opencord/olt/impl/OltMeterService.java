@@ -77,10 +77,15 @@ public class OltMeterService implements OltMeterServiceInterface {
     protected BaseInformationService<BandwidthProfileInformation> bpService;
     private ApplicationId appId;
     private static final String APP_NAME = "org.opencord.olt";
-    protected HashMap<DeviceId, List<MeterData>> programmedMeters;
     private final ReentrantReadWriteLock programmedMeterLock = new ReentrantReadWriteLock();
     private final Lock programmedMeterWriteLock = programmedMeterLock.writeLock();
     private final Lock programmedMeterReadLock = programmedMeterLock.readLock();
+
+    /**
+     * Programmed Meters status map.
+     * Keeps track of which meter is programmed on which device for which BandwidthProfile.
+     */
+    protected HashMap<DeviceId, List<MeterData>> programmedMeters;
 
     protected BlockingQueue<OltMeterRequest> pendingMeters =
             new LinkedBlockingQueue<>();
@@ -408,18 +413,16 @@ public class OltMeterService implements OltMeterServiceInterface {
             pendingRemovalMetersExecutor.execute(() -> {
 
                 log.info("Received meter event {}", meterEvent);
-                switch (meterEvent.type()) {
-                    case METER_REFERENCE_COUNT_ZERO:
-                        Meter meter = meterEvent.subject();
-                        if (appId.equals(meter.appId())) {
-                            log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
-                            if (deleteMeters) {
-                                // only delete the meters if the app is configured to do so
-                                // deleteMeter(meter.deviceId(), meter.id());
-                            }
+                if (meterEvent.type() == MeterEvent.Type.METER_REFERENCE_COUNT_ZERO) {
+                    // NOTE looks like we're not receiving this event
+                    Meter meter = meterEvent.subject();
+                    if (appId.equals(meter.appId())) {
+                        log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
+                        if (deleteMeters) {
+                            // only delete the meters if the app is configured to do so
+                             deleteMeter(meter.deviceId(), meter.id());
                         }
-                    default:
-                        break;
+                    }
                 }
             });
         }

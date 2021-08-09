@@ -111,7 +111,7 @@ public class Olt {
     @Activate
     protected void activate() {
         cfgService.registerProperties(getClass());
-        deviceListener = new OltDeviceListener(oltDeviceService, discoveredSubscribersQueue);
+        deviceListener = new OltDeviceListener(oltDeviceService, oltFlowService, discoveredSubscribersQueue);
         deviceService.addListener(deviceListener);
         discoveredSubscriberExecutor.execute(this::processDiscoveredSubscribers);
         log.info("Started");
