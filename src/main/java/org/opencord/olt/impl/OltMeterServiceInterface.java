@@ -15,5 +15,7 @@ public interface OltMeterServiceInterface {
 
     MeterId getMeterIdForBandwidthProfile(DeviceId deviceId, String bpId);
 
+    void purgeDeviceMeters(DeviceId deviceId);
+
     Map<DeviceId, List<OltMeterService.MeterData>> getProgrammedMeters();
 }

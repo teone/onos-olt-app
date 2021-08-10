@@ -1,9 +1,11 @@
 package org.opencord.olt.impl;
 
 import org.onosproject.net.Device;
+import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
 import org.onosproject.net.device.DeviceEvent;
 import org.onosproject.net.device.DeviceListener;
+import org.onosproject.net.device.DeviceService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -13,13 +15,19 @@ public class OltDeviceListener implements DeviceListener {
     private final Logger log = LoggerFactory.getLogger(getClass());
     protected final OltDeviceServiceInterface oltDevice;
     protected final OltFlowServiceInterface oltFlowService;
+    protected final OltMeterServiceInterface oltMeterService;
+    protected final DeviceService deviceService;
     private final BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue;
 
     public OltDeviceListener(OltDeviceServiceInterface oltDevice,
                              OltFlowServiceInterface oltFlowService,
+                             OltMeterServiceInterface oltMeterService,
+                             DeviceService deviceService,
                              BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue) {
         this.oltDevice = oltDevice;
         this.oltFlowService = oltFlowService;
+        this.oltMeterService = oltMeterService;
+        this.deviceService = deviceService;
         this.discoveredSubscribersQueue = discoveredSubscribersQueue;
     }
 
@@ -41,6 +49,13 @@ public class OltDeviceListener implements DeviceListener {
                 // is enabled or not
                 handleOltPort(event.type(), event.subject(), event.port());
                 return;
+            case DEVICE_AVAILABILITY_CHANGED:
+                DeviceId deviceId = event.subject().id();
+                if (!deviceService.isAvailable(deviceId) && deviceService.getPorts(deviceId).isEmpty()) {
+                    log.info("Device {} availability changed to false, purging meters and flows", deviceId);
+                    oltFlowService.purgeDeviceFlows(deviceId);
+                    oltMeterService.purgeDeviceMeters(deviceId);
+                }
             default:
                 log.debug("OltDeviceListener receives event: {}", event);
         }
@@ -52,7 +67,14 @@ public class OltDeviceListener implements DeviceListener {
 
         if (port.isEnabled()) {
             if (oltDevice.isNniPort(device, port)) {
-                log.warn("TODO handle NNI flows add");
+                // NOTE in the NNI case we receive a PORT_REMOVED event with status ENABLED, thus we need to
+                // pass the floeAction to the handleNniFlows method
+                OltFlowService.FlowAction action = port.isEnabled() ?
+                        OltFlowService.FlowAction.ADD : OltFlowService.FlowAction.REMOVE;
+                if (type == DeviceEvent.Type.PORT_REMOVED) {
+                    action = OltFlowService.FlowAction.REMOVE;
+                }
+                oltFlowService.handleNniFlows(device, port, action);
             } else {
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                         DiscoveredSubscriber.Status.ADDED, false);
@@ -65,7 +87,7 @@ public class OltDeviceListener implements DeviceListener {
         } else {
             if (oltDevice.isNniPort(device, port)) {
                 // NOTE this may need to be handled on DEVICE_REMOVE as we don't disable the NNI
-                log.warn("TODO handle NNI flows remove");
+                oltFlowService.handleNniFlows(device, port, OltFlowService.FlowAction.REMOVE);
             } else {
 
                 if (oltFlowService.hasDefaultEapol(device.id(), port.number())) {

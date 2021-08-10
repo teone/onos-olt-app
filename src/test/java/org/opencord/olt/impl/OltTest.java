@@ -32,6 +32,7 @@ import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceServiceAdapter;
 import org.onosproject.net.provider.ProviderId;
+import org.opencord.sadis.SadisService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -77,7 +78,7 @@ public class OltTest extends OltTestHelpers {
         component.discoveredSubscriberExecutor = Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                 "discovered-cp-%d", log));
         component.oltFlowService = Mockito.mock(OltFlowService.class);
-        component.sadisService = new MockSadisService();
+        component.sadisService = Mockito.mock(SadisService.class);
 
         // reset the spy on oltFlowService
         reset(component.oltFlowService);

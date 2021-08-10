@@ -208,6 +208,20 @@ public class OltMeterService implements OltMeterServiceInterface {
         }
     }
 
+    @Override
+    public void purgeDeviceMeters(DeviceId deviceId) {
+        log.debug("Purging meters on device {}", deviceId);
+        meterService.purgeMeters(deviceId);
+
+        // after we purge the meters we also need to clear the map
+        try {
+            programmedMeterWriteLock.lock();
+            programmedMeters.remove(deviceId);
+        } finally {
+            programmedMeterWriteLock.unlock();
+        }
+    }
+
     /**
      * Schedules the creation of a meter for a given Bandwidth Profile on a given device.
      *

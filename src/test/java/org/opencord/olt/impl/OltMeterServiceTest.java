@@ -3,12 +3,14 @@ package org.opencord.olt.impl;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
+import org.mockito.Mockito;
 import org.onosproject.cfg.ComponentConfigAdapter;
 import org.onosproject.core.CoreServiceAdapter;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.meter.MeterServiceAdapter;
 import org.onosproject.store.service.StorageServiceAdapter;
+import org.opencord.sadis.SadisService;
 
 import java.util.LinkedList;
 import java.util.List;
@@ -24,7 +26,7 @@ public class OltMeterServiceTest extends OltTestHelpers {
         oltMeterService.cfgService = new ComponentConfigAdapter();
         oltMeterService.coreService = new CoreServiceAdapter();
         oltMeterService.storageService = new StorageServiceAdapter();
-        oltMeterService.sadisService = new MockSadisService();
+        oltMeterService.sadisService = Mockito.mock(SadisService.class);
         oltMeterService.meterService = new MeterServiceAdapter();
         oltMeterService.activate();
     }

@@ -2,7 +2,10 @@ package org.opencord.olt.impl;
 
 import com.google.common.collect.ImmutableMap;
 import org.onlab.packet.EthType;
+import org.onlab.packet.IPv4;
+import org.onlab.packet.IPv6;
 import org.onlab.packet.MacAddress;
+import org.onlab.packet.TpPort;
 import org.onlab.packet.VlanId;
 import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
@@ -10,10 +13,12 @@ import org.onosproject.core.ApplicationId;
 import org.onosproject.core.CoreService;
 import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.ConnectPoint;
+import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
+import org.onosproject.net.flow.FlowRuleService;
 import org.onosproject.net.flow.TrafficTreatment;
 import org.onosproject.net.flow.criteria.Criteria;
 import org.onosproject.net.flowobjective.DefaultFilteringObjective;
@@ -87,6 +92,9 @@ public class OltFlowService implements OltFlowServiceInterface {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected OltMeterServiceInterface oltMeterService;
 
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected FlowRuleService flowRuleService;
+
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
     protected BaseInformationService<BandwidthProfileInformation> bpService;
 
@@ -94,6 +102,9 @@ public class OltFlowService implements OltFlowServiceInterface {
     private ApplicationId appId;
     private static final Integer MAX_PRIORITY = 10000;
     private static final short EAPOL_DEFAULT_VLAN = 4091;
+    private static final int NONE_TP_ID = -1;
+    private static final String V4 = "V4";
+    private static final String V6 = "V6";
     private final Logger log = LoggerFactory.getLogger(getClass());
 
     /**
@@ -143,6 +154,11 @@ public class OltFlowService implements OltFlowServiceInterface {
     public enum FlowAction {
         ADD,
         REMOVE,
+    }
+
+    public enum FlowDirection {
+        UPSTREAM,
+        DOWNSTREAM,
     }
 
     @Activate
@@ -222,6 +238,42 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
+    public void handleNniFlows(Device device, Port port, FlowAction action) {
+
+        // always handle the LLDP flow
+        processLldpFilteringObjective(device.id(), port, action);
+
+        if (enableDhcpOnNni) {
+            if (enableDhcpV4) {
+                log.debug("Installing DHCPv4 trap flow on NNI {} for device {}", port.number(), device.id());
+                processDhcpFilteringObjectives(device.id(), port, action, FlowDirection.DOWNSTREAM,
+                        67, 68, EthType.EtherType.IPV4.ethType(), IPv4.PROTOCOL_UDP,
+                        null, null, NONE_TP_ID, VlanId.NONE, VlanId.ANY, null);
+            }
+            if (enableDhcpV6) {
+                log.debug("Installing DHCPv6 trap flow on NNI {} for device {}", port.number(), device.id());
+                processDhcpFilteringObjectives(device.id(), port, action, FlowDirection.DOWNSTREAM,
+                        546, 547, EthType.EtherType.IPV6.ethType(), IPv6.PROTOCOL_UDP,
+                        null, null, NONE_TP_ID, VlanId.NONE, VlanId.ANY, null);
+            }
+        } else {
+            log.info("DHCP is not required on NNI {} for device {}", port.number(), device.id());
+        }
+
+        if (enableIgmpOnNni) {
+            log.debug("Installing IGMP flow on NNI {} for device {}", port.number(), device.id());
+            processIgmpFilteringObjectives(device.id(), port, action, FlowDirection.DOWNSTREAM,
+                    null, null, NONE_TP_ID, VlanId.NONE, VlanId.ANY, null);
+        }
+
+        if (enablePppoe) {
+            log.debug("Installing PPPoE flow on NNI {} for device {}", port.number(), device.id());
+            processPPPoEDFilteringObjectives(device.id(), port, action, FlowDirection.DOWNSTREAM,
+                    null, null, NONE_TP_ID, VlanId.NONE, VlanId.ANY, null);
+        }
+    }
+
+    @Override
     public void handleBasicPortFlows(DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
 
         // we only need to something if EAPOL is enabled
@@ -292,6 +344,12 @@ public class OltFlowService implements OltFlowServiceInterface {
         } finally {
             cpStatusReadLock.unlock();
         }
+    }
+
+    @Override
+    public void purgeDeviceFlows(DeviceId deviceId) {
+        log.debug("Purging flows on device {}", deviceId);
+        flowRuleService.purgeFlowRules(deviceId);
     }
 
     // NOTE this method can most likely be generalized to:
@@ -418,7 +476,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         return defaultTechProfileId;
     }
 
-    private Long createTechProfValueForWm(VlanId cVlan, int techProfileId, MeterId upstreamOltMeterId) {
+    protected Long createTechProfValueForWm(VlanId cVlan, int techProfileId, MeterId upstreamOltMeterId) {
         Long writeMetadata;
 
         if (cVlan == null || VlanId.NONE.equals(cVlan)) {
@@ -433,6 +491,200 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
     }
 
+    private void processLldpFilteringObjective(DeviceId deviceId, Port port, FlowAction action) {
+        DefaultFilteringObjective.Builder builder = DefaultFilteringObjective.builder();
+
+        FilteringObjective lldp = (action == FlowAction.ADD ? builder.permit() : builder.deny())
+                .withKey(Criteria.matchInPort(port.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.LLDP.ethType()))
+                .withMeta(DefaultTrafficTreatment.builder()
+                        .setOutput(PortNumber.CONTROLLER).build())
+                .fromApp(appId)
+                .withPriority(MAX_PRIORITY)
+                .add(new ObjectiveContext() {
+                    @Override
+                    public void onSuccess(Objective objective) {
+                        log.info("LLDP filter for {} {}.", port, action);
+                    }
+
+                    @Override
+                    public void onError(Objective objective, ObjectiveError error) {
+                        log.error("LLDP filter for {} failed {} because {}", port, action,
+                                error);
+                    }
+                });
+
+        flowObjectiveService.filter(deviceId, lldp);
+    }
+
+    private void processDhcpFilteringObjectives(DeviceId deviceId, Port port,
+                                                FlowAction action, FlowDirection direction,
+                                                int udpSrc, int udpDst, EthType ethType, byte protocol,
+                                                MeterId meterId, MeterId oltMeterId, int techProfileId,
+                                                VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
+
+        DefaultFilteringObjective.Builder builder = DefaultFilteringObjective.builder();
+        TrafficTreatment.Builder treatmentBuilder = DefaultTrafficTreatment.builder();
+
+        if (meterId != null) {
+            treatmentBuilder.meter(meterId);
+        }
+
+        if (techProfileId != NONE_TP_ID) {
+            treatmentBuilder.writeMetadata(createTechProfValueForWm(unitagMatch, techProfileId, oltMeterId), 0);
+        }
+
+        FilteringObjective.Builder dhcpBuilder = (action == FlowAction.ADD ? builder.permit() : builder.deny())
+                .withKey(Criteria.matchInPort(port.number()))
+                .addCondition(Criteria.matchEthType(ethType))
+                .addCondition(Criteria.matchIPProtocol(protocol))
+                .addCondition(Criteria.matchUdpSrc(TpPort.tpPort(udpSrc)))
+                .addCondition(Criteria.matchUdpDst(TpPort.tpPort(udpDst)))
+                .fromApp(appId)
+                .withPriority(MAX_PRIORITY);
+
+        //VLAN changes and PCP matching need to happen only in the upstream directions
+        if (direction == FlowDirection.UPSTREAM) {
+            treatmentBuilder.setVlanId(cTag);
+            if (!VlanId.vlanId(VlanId.NO_VID).equals(unitagMatch)) {
+                dhcpBuilder.addCondition(Criteria.matchVlanId(unitagMatch));
+            }
+            if (vlanPcp != null) {
+                treatmentBuilder.setVlanPcp(vlanPcp);
+            }
+        }
+
+        dhcpBuilder.withMeta(treatmentBuilder
+                .setOutput(PortNumber.CONTROLLER).build());
+
+
+        FilteringObjective dhcpUpstream = dhcpBuilder.add(new ObjectiveContext() {
+            @Override
+            public void onSuccess(Objective objective) {
+                log.info("DHCP {} filter for {} {}.",
+                        (ethType.equals(EthType.EtherType.IPV4.ethType())) ? V4 : V6, port,
+                        action);
+            }
+
+            @Override
+            public void onError(Objective objective, ObjectiveError error) {
+                log.error("DHCP {} filter for {} failed {} because {}",
+                        (ethType.equals(EthType.EtherType.IPV4.ethType())) ? V4 : V6, port,
+                        action,
+                        error);
+            }
+        });
+        flowObjectiveService.filter(deviceId, dhcpUpstream);
+    }
+
+    private void processIgmpFilteringObjectives(DeviceId deviceId, Port port,
+                                                FlowAction action, FlowDirection direction,
+                                                MeterId meterId, MeterId oltMeterId, int techProfileId,
+                                                VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
+
+        DefaultFilteringObjective.Builder filterBuilder = DefaultFilteringObjective.builder();
+        TrafficTreatment.Builder treatmentBuilder = DefaultTrafficTreatment.builder();
+        if (direction == FlowDirection.UPSTREAM) {
+
+            if (techProfileId != NONE_TP_ID) {
+                treatmentBuilder.writeMetadata(createTechProfValueForWm(null,
+                        techProfileId, oltMeterId), 0);
+            }
+
+
+            if (meterId != null) {
+                treatmentBuilder.meter(meterId);
+            }
+
+            if (!VlanId.vlanId(VlanId.NO_VID).equals(unitagMatch)) {
+                filterBuilder.addCondition(Criteria.matchVlanId(unitagMatch));
+            }
+
+            if (!VlanId.vlanId(VlanId.NO_VID).equals(cTag)) {
+                treatmentBuilder.setVlanId(cTag);
+            }
+
+            if (vlanPcp != null) {
+                treatmentBuilder.setVlanPcp(vlanPcp);
+            }
+        }
+
+        filterBuilder = (action == FlowAction.ADD) ? filterBuilder.permit() : filterBuilder.deny();
+
+        FilteringObjective igmp = filterBuilder
+                .withKey(Criteria.matchInPort(port.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.IPV4.ethType()))
+                .addCondition(Criteria.matchIPProtocol(IPv4.PROTOCOL_IGMP))
+                .withMeta(treatmentBuilder
+                        .setOutput(PortNumber.CONTROLLER).build())
+                .fromApp(appId)
+                .withPriority(MAX_PRIORITY)
+                .add(new ObjectiveContext() {
+                    @Override
+                    public void onSuccess(Objective objective) {
+                        log.info("Igmp filter for {} {}.", port, action);
+                    }
+
+                    @Override
+                    public void onError(Objective objective, ObjectiveError error) {
+                        log.error("Igmp filter for {} failed {} because {}.", port, action,
+                                error);
+                    }
+                });
+
+        flowObjectiveService.filter(deviceId, igmp);
+
+    }
+
+    private void processPPPoEDFilteringObjectives(DeviceId deviceId, Port port,
+                                                  FlowAction action, FlowDirection direction,
+                                                  MeterId meterId, MeterId oltMeterId, int techProfileId,
+                                                  VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
+
+        DefaultFilteringObjective.Builder builder = DefaultFilteringObjective.builder();
+        TrafficTreatment.Builder treatmentBuilder = DefaultTrafficTreatment.builder();
+
+        if (meterId != null) {
+            treatmentBuilder.meter(meterId);
+        }
+
+        if (techProfileId != NONE_TP_ID) {
+            treatmentBuilder.writeMetadata(createTechProfValueForWm(cTag, techProfileId, oltMeterId), 0);
+        }
+
+        DefaultFilteringObjective.Builder pppoedBuilder = ((action == FlowAction.ADD)
+                ? builder.permit() : builder.deny())
+                .withKey(Criteria.matchInPort(port.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.PPPoED.ethType()))
+                .fromApp(appId)
+                .withPriority(10000);
+
+        if (direction == FlowDirection.UPSTREAM) {
+            treatmentBuilder.setVlanId(cTag);
+            if (!VlanId.vlanId(VlanId.NO_VID).equals(unitagMatch)) {
+                pppoedBuilder.addCondition(Criteria.matchVlanId(unitagMatch));
+            }
+            if (vlanPcp != null) {
+                treatmentBuilder.setVlanPcp(vlanPcp);
+            }
+        }
+        pppoedBuilder = pppoedBuilder.withMeta(treatmentBuilder.setOutput(PortNumber.CONTROLLER).build());
+
+        FilteringObjective pppoed = pppoedBuilder
+                .add(new ObjectiveContext() {
+                    @Override
+                    public void onSuccess(Objective objective) {
+                        log.info("PPPoED filter for {} {}.", port, action);
+                    }
+
+                    @Override
+                    public void onError(Objective objective, ObjectiveError error) {
+                        log.info("PPPoED filter for {} failed {} because {}", port,
+                                action, error);
+                    }
+                });
+        flowObjectiveService.filter(deviceId, pppoed);
+    }
     public enum OltFlowsStatus {
         NONE,
         PENDING_ADD,

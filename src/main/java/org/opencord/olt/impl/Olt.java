@@ -71,6 +71,15 @@ public class Olt {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile SadisService sadisService;
 
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected OltDeviceServiceInterface oltDeviceService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected OltFlowServiceInterface oltFlowService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected OltMeterServiceInterface oltMeterService;
+
     /**
      * Default bandwidth profile id that is used for authentication trap flows.
      **/
@@ -93,12 +102,6 @@ public class Olt {
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected OltDeviceServiceInterface oltDeviceService;
-
-    @Reference(cardinality = ReferenceCardinality.MANDATORY)
-    protected OltFlowServiceInterface oltFlowService;
-
     protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue =
             new LinkedBlockingQueue<DiscoveredSubscriber>();
     private DeviceListener deviceListener;
@@ -111,7 +114,8 @@ public class Olt {
     @Activate
     protected void activate() {
         cfgService.registerProperties(getClass());
-        deviceListener = new OltDeviceListener(oltDeviceService, oltFlowService, discoveredSubscribersQueue);
+        deviceListener = new OltDeviceListener(oltDeviceService, oltFlowService, oltMeterService,
+                deviceService, discoveredSubscribersQueue);
         deviceService.addListener(deviceListener);
         discoveredSubscriberExecutor.execute(this::processDiscoveredSubscribers);
         log.info("Started");

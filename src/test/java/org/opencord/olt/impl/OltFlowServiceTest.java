@@ -7,6 +7,10 @@ import org.junit.Test;
 import org.mockito.Mockito;
 import org.onlab.packet.ChassisId;
 import org.onlab.packet.EthType;
+import org.onlab.packet.IPv4;
+import org.onlab.packet.IPv6;
+import org.onlab.packet.TpPort;
+import org.onlab.packet.VlanId;
 import org.onosproject.cfg.ComponentConfigAdapter;
 import org.onosproject.core.ApplicationId;
 import org.onosproject.core.CoreServiceAdapter;
@@ -19,6 +23,7 @@ import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
+import org.onosproject.net.flow.DefaultTrafficTreatment;
 import org.onosproject.net.flow.criteria.Criteria;
 import org.onosproject.net.flowobjective.DefaultFilteringObjective;
 import org.onosproject.net.flowobjective.FilteringObjective;
@@ -41,10 +46,15 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
     private OltFlowService oltFlowService;
     private final ApplicationId testAppId = new DefaultApplicationId(1, "org.opencord.olt.test");
+    private final short eapolDefaultVlan = 4091;
 
     private final DeviceId deviceId = DeviceId.deviceId("test-device");
     private final Device testDevice = new DefaultDevice(ProviderId.NONE, deviceId, Device.Type.OLT,
             "testManufacturer", "1.0", "1.0", "SN", new ChassisId(1));
+    Port nniPort = new OltPort(true, PortNumber.portNumber(1048576),
+            DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "nni-1").build());
+    Port nniPortDisabled = new OltPort(false, PortNumber.portNumber(1048576),
+            DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "nni-1").build());
     Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
             DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
     private final DiscoveredSubscriber addedSub = new DiscoveredSubscriber(testDevice,
@@ -150,6 +160,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
     @Test
     public void testHandleBasicPortFlowsWithEapolAddedMeter() throws Exception {
+
         // this is the happy case, we have the meter so we check that the default EAPOL flow
         // is installed
         doReturn(true).when(oltFlowService.oltMeterService)
@@ -163,6 +174,16 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 .addCondition(Criteria.matchEthType(EthType.EtherType.EAPOL.ethType()))
                 .fromApp(testAppId)
                 .withPriority(10000)
+                .withMeta(
+                        DefaultTrafficTreatment.builder()
+                                .meter(MeterId.meterId(1))
+                                .writeMetadata(oltFlowService.createTechProfValueForWm(
+                                        VlanId.vlanId(eapolDefaultVlan),
+                                        oltFlowService.defaultTechProfileId, MeterId.meterId(1)), 0)
+                                .setOutput(PortNumber.CONTROLLER)
+                                .pushVlan()
+                                .setVlanId(VlanId.vlanId(eapolDefaultVlan)).build()
+                )
                 .add();
 
 
@@ -195,11 +216,143 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 .addCondition(Criteria.matchEthType(EthType.EtherType.EAPOL.ethType()))
                 .fromApp(testAppId)
                 .withPriority(10000)
+                .withMeta(
+                        DefaultTrafficTreatment.builder()
+                                .meter(MeterId.meterId(1))
+                                .writeMetadata(oltFlowService.createTechProfValueForWm(
+                                        VlanId.vlanId(eapolDefaultVlan),
+                                        oltFlowService.defaultTechProfileId, MeterId.meterId(1)), 0)
+                                .setOutput(PortNumber.CONTROLLER)
+                                .pushVlan()
+                                .setVlanId(VlanId.vlanId(eapolDefaultVlan)).build()
+                )
                 .add();
 
         oltFlowService.handleBasicPortFlows(removedSub, DEFAULT_BP_ID_DEFAULT);
 
         verify(oltFlowService.flowObjectiveService, times(1))
                 .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+    }
+
+    @Test
+    public void testHandleNniFlowsOnlyLldp() {
+        oltFlowService.enableDhcpOnNni = false;
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+
+        FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
+                .permit()
+                .withKey(Criteria.matchInPort(nniPort.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.LLDP.ethType()))
+                .fromApp(testAppId)
+                .withPriority(10000)
+                .withMeta(DefaultTrafficTreatment.builder().setOutput(PortNumber.CONTROLLER).build())
+                .add();
+
+        verify(oltFlowService.flowObjectiveService, times(1))
+                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+        verify(oltFlowService.flowObjectiveService, times(1))
+                .filter(eq(addedSub.device.id()), any());
+    }
+
+    @Test
+    public void testHandleNniFlowsDhcpV4() {
+        oltFlowService.enableDhcpOnNni = true;
+        oltFlowService.enableDhcpV4 = true;
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+
+        FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
+                .permit()
+                .withKey(Criteria.matchInPort(nniPort.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.IPV4.ethType()))
+                .addCondition(Criteria.matchIPProtocol(IPv4.PROTOCOL_UDP))
+                .addCondition(Criteria.matchUdpSrc(TpPort.tpPort(67)))
+                .addCondition(Criteria.matchUdpDst(TpPort.tpPort(68)))
+                .fromApp(testAppId)
+                .withPriority(10000)
+                .withMeta(DefaultTrafficTreatment.builder().setOutput(PortNumber.CONTROLLER).build())
+                .add();
+
+        // invoked with the correct DHCP filtering objective
+        verify(oltFlowService.flowObjectiveService, times(1))
+                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+        // invoked only twice, LLDP and DHCP
+        verify(oltFlowService.flowObjectiveService, times(2))
+                .filter(eq(addedSub.device.id()), any());
+    }
+
+    @Test
+    public void testRemoveNniFlowsDhcpV4() {
+        oltFlowService.enableDhcpOnNni = true;
+        oltFlowService.enableDhcpV4 = true;
+        oltFlowService.handleNniFlows(testDevice, nniPortDisabled, OltFlowService.FlowAction.REMOVE);
+
+        FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
+                .deny()
+                .withKey(Criteria.matchInPort(nniPort.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.IPV4.ethType()))
+                .addCondition(Criteria.matchIPProtocol(IPv4.PROTOCOL_UDP))
+                .addCondition(Criteria.matchUdpSrc(TpPort.tpPort(67)))
+                .addCondition(Criteria.matchUdpDst(TpPort.tpPort(68)))
+                .fromApp(testAppId)
+                .withPriority(10000)
+                .withMeta(DefaultTrafficTreatment.builder().setOutput(PortNumber.CONTROLLER).build())
+                .add();
+
+        // invoked with the correct DHCP filtering objective
+        verify(oltFlowService.flowObjectiveService, times(1))
+                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+        // invoked only twice, LLDP and DHCP
+        verify(oltFlowService.flowObjectiveService, times(2))
+                .filter(eq(addedSub.device.id()), any());
+    }
+
+    @Test
+    public void testHandleNniFlowsDhcpV6() {
+        oltFlowService.enableDhcpOnNni = true;
+        oltFlowService.enableDhcpV4 = false;
+        oltFlowService.enableDhcpV6 = true;
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+
+        FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
+                .permit()
+                .withKey(Criteria.matchInPort(nniPort.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.IPV6.ethType()))
+                .addCondition(Criteria.matchIPProtocol(IPv6.PROTOCOL_UDP))
+                .addCondition(Criteria.matchUdpSrc(TpPort.tpPort(546)))
+                .addCondition(Criteria.matchUdpDst(TpPort.tpPort(547)))
+                .fromApp(testAppId)
+                .withPriority(10000)
+                .withMeta(DefaultTrafficTreatment.builder().setOutput(PortNumber.CONTROLLER).build())
+                .add();
+
+        // invoked with the correct DHCP filtering objective
+        verify(oltFlowService.flowObjectiveService, times(1))
+                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+        // invoked only twice, LLDP and DHCP
+        verify(oltFlowService.flowObjectiveService, times(2))
+                .filter(eq(addedSub.device.id()), any());
+    }
+
+    @Test
+    public void testHandleNniFlowsIgmp() {
+        oltFlowService.enableDhcpOnNni = false;
+        oltFlowService.enableIgmpOnNni = true;
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+
+        FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
+                .permit()
+                .withKey(Criteria.matchInPort(nniPort.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.IPV4.ethType()))
+                .addCondition(Criteria.matchIPProtocol(IPv4.PROTOCOL_IGMP))
+                .fromApp(testAppId)
+                .withPriority(10000)
+                .add();
+
+        // invoked with the correct DHCP filtering objective
+        verify(oltFlowService.flowObjectiveService, times(1))
+                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+        // invoked only twice, LLDP and DHCP
+        verify(oltFlowService.flowObjectiveService, times(2))
+                .filter(eq(addedSub.device.id()), any());
     }
 }
