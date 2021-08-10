@@ -1,5 +1,6 @@
 package org.opencord.olt.impl;
 
+import com.google.common.collect.ImmutableMap;
 import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.core.ApplicationId;
@@ -34,6 +35,7 @@ import java.util.Dictionary;
 import java.util.HashMap;
 import java.util.LinkedList;
 import java.util.List;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.CompletableFuture;
@@ -143,8 +145,13 @@ public class OltMeterService implements OltMeterServiceInterface {
         }
     }
 
-    public HashMap<DeviceId, List<MeterData>> getProgrammedMeters() {
-        return this.programmedMeters;
+    public Map<DeviceId, List<MeterData>> getProgrammedMeters() {
+        try {
+            programmedMeterReadLock.lock();
+            return ImmutableMap.copyOf(programmedMeters);
+        } finally {
+            programmedMeterReadLock.unlock();
+        }
     }
 
     /**

@@ -1,5 +1,6 @@
 package org.opencord.olt.impl;
 
+import com.google.common.collect.ImmutableMap;
 import org.onlab.packet.EthType;
 import org.onlab.packet.MacAddress;
 import org.onlab.packet.VlanId;
@@ -212,7 +213,12 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     @Override
     public Map<ConnectPoint, OltPortStatus> getConnectPointStatus() {
-        return this.cpStatus;
+        try {
+            cpStatusReadLock.lock();
+            return ImmutableMap.copyOf(cpStatus);
+        } finally {
+            cpStatusReadLock.unlock();
+        }
     }
 
     @Override

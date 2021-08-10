@@ -20,8 +20,12 @@ import org.apache.karaf.shell.api.action.Command;
 import org.apache.karaf.shell.api.action.lifecycle.Service;
 import org.onosproject.cli.AbstractShellCommand;
 import org.onosproject.net.ConnectPoint;
+import org.onosproject.net.DeviceId;
+import org.onosproject.net.PortNumber;
 import org.opencord.olt.impl.OltFlowService;
 import org.opencord.olt.impl.OltFlowServiceInterface;
+
+import java.util.HashMap;
 import java.util.Map;
 
 @Service
@@ -32,16 +36,31 @@ public class ShowPortStatus extends AbstractShellCommand {
     @Override
     protected void doExecute() {
         OltFlowServiceInterface service = AbstractShellCommand.get(OltFlowServiceInterface.class);
-        Map<ConnectPoint, OltFlowService.OltPortStatus> meters = service.getConnectPointStatus();
-        if (meters.isEmpty()) {
+        Map<ConnectPoint, OltFlowService.OltPortStatus> flowStatus = service.getConnectPointStatus();
+        if (flowStatus.isEmpty()) {
             print("No ports handled by the org.opencord.olt app");
         }
-        meters.forEach(this::display);
+
+        Map<DeviceId, Map<PortNumber, OltFlowService.OltPortStatus>> sortedStatus = new HashMap<>();
+
+        flowStatus.forEach((cp, fs) -> {
+
+            Map<PortNumber, OltFlowService.OltPortStatus> portMap = sortedStatus.get(cp.deviceId());
+            if (portMap == null) {
+                portMap = new HashMap<>();
+            }
+            portMap.put(cp.port(), fs);
+
+            sortedStatus.put(cp.deviceId(), portMap);
+        });
+
+        sortedStatus.forEach(this::display);
     }
 
-    private void display(ConnectPoint cp, OltFlowService.OltPortStatus status) {
-        print("deviceId=%s, port=%s, eapolStatus=%s, subscriberFlowsStatus=%s, macAddress=%s",
-                cp.deviceId(), cp.port(), status.eapolStatus, status.subscriberFlowsStatus, status.macAddress);
-
+    private void display(DeviceId deviceId, Map<PortNumber, OltFlowService.OltPortStatus> portStatus) {
+        print("deviceId=%s, managedPorts=%d", deviceId, portStatus.size());
+        portStatus.forEach((port, status) ->
+                print("\tport=%s eapolStatus=%s subscriberFlowsStatus=%s macAddress=%s",
+                        port, status.eapolStatus, status.subscriberFlowsStatus, status.macAddress));
     }
 }
