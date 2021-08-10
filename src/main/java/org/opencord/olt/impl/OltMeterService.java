@@ -120,6 +120,7 @@ public class OltMeterService implements OltMeterServiceInterface {
 //                .build();
 
         // TODO this should be a distributed map
+        // NOTE this maps is lost on app/node restart, can we rebuild it?
         programmedMeters = new HashMap<>();
         cfgService.registerProperties(getClass());
 
@@ -140,6 +141,10 @@ public class OltMeterService implements OltMeterServiceInterface {
         if (d != null) {
             deleteMeters = d;
         }
+    }
+
+    public HashMap<DeviceId, List<MeterData>> getProgrammedMeters() {
+        return this.programmedMeters;
     }
 
     /**
@@ -476,7 +481,7 @@ public class OltMeterService implements OltMeterServiceInterface {
         }
     }
 
-    protected static class MeterData {
+    public static class MeterData {
         public MeterId meterId;
         public MeterCellId meterCellId;
         public MeterStatus meterStatus;

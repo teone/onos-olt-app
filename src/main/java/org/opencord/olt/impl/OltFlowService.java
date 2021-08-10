@@ -38,6 +38,7 @@ import org.slf4j.LoggerFactory;
 
 import java.util.Dictionary;
 import java.util.HashMap;
+import java.util.Map;
 import java.util.Properties;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -151,6 +152,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         appId = coreService.registerApplication(APP_NAME);
 
         // TODO this should be a distributed map
+        // NOTE this maps is lost on app/node restart, can we rebuild it?
         cpStatus = new HashMap<>();
 
         log.info("Activated");
@@ -206,6 +208,11 @@ public class OltFlowService implements OltFlowServiceInterface {
                 enableIgmpOnNni, enableEapol, enablePppoe,
                 defaultTechProfileId);
 
+    }
+
+    @Override
+    public Map<ConnectPoint, OltPortStatus> getConnectPointStatus() {
+        return this.cpStatus;
     }
 
     @Override
@@ -429,7 +436,8 @@ public class OltFlowService implements OltFlowServiceInterface {
         ERROR
     }
 
-    protected static class OltPortStatus {
+    public static class OltPortStatus {
+        // TODO consider adding a lastUpdated field, it may help with debugging
         public OltFlowsStatus eapolStatus;
         public OltFlowsStatus subscriberFlowsStatus;
         public MacAddress macAddress;
