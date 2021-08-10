@@ -1,5 +1,6 @@
 package org.opencord.olt.impl;
 
+import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.Device;
 import org.onosproject.net.Port;
 
@@ -20,6 +21,10 @@ public class DiscoveredSubscriber {
         this.port = port;
         this.status = status;
         this.provisionSubscriber = provisionSubscriber;
+    }
+
+    public String portName() {
+        return port.annotations().value(AnnotationKeys.PORT_NAME);
     }
 
     @Override

@@ -11,10 +11,10 @@ import java.util.Map;
 public interface OltFlowServiceInterface {
 
     void handleBasicPortFlows(
-            DiscoveredSubscriber sub, String defaultMeterId)
+            DiscoveredSubscriber sub, String defaultBpId)
                 throws Exception;
 
-    void handleSubscriberFlows(DiscoveredSubscriber sub) throws Exception;
+    void handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBpId) throws Exception;
 
     void handleNniFlows(Device device, Port port, OltFlowService.FlowAction action);
 

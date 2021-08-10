@@ -16,8 +16,13 @@
 package org.opencord.olt.impl;
 
 import org.onosproject.cfg.ComponentConfigService;
+import org.onosproject.net.ConnectPoint;
+import org.onosproject.net.Device;
+import org.onosproject.net.DeviceId;
+import org.onosproject.net.Port;
 import org.onosproject.net.device.DeviceListener;
 import org.onosproject.net.device.DeviceService;
+import org.onosproject.net.device.DeviceStore;
 import org.opencord.sadis.SadisService;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
@@ -60,10 +65,13 @@ import static org.opencord.olt.impl.OsgiPropertyConstants.PROVISION_DELAY_DEFAUL
                         EAPOL_DELETE_RETRY_MAX_ATTEMPS_DEFAULT,
                 PROVISION_DELAY + ":Integer=" + PROVISION_DELAY_DEFAULT,
         })
-public class Olt {
+public class Olt implements OltService {
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected DeviceService deviceService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected DeviceStore deviceStore;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected ComponentConfigService cfgService;
@@ -169,8 +177,13 @@ public class Olt {
 
                 if (sub.provisionSubscriber) {
                     // this is a provision subscriber call
-                    log.error("currently not handling subscriber provisioning");
-                    discoveredSubscribersQueue.remove(sub);
+                    try {
+                        oltFlowService.handleSubscriberFlows(sub, defaultBpId);
+                        discoveredSubscribersQueue.remove(sub);
+                    } catch (Exception e) {
+                        log.error("Provisioning of subscriber on {}/{} ({}) postponed: {}",
+                                sub.device.id(), sub.port.number(), sub.portName(), e.getMessage());
+                    }
                 } else {
                     // this is a port event (ENABLED/DISABLED)
                     // means no subscriber was provisioned on that port
@@ -191,6 +204,24 @@ public class Olt {
             } catch (Exception e) {
                 continue;
             }
+        }
+    }
+
+
+    @Override
+    public boolean provisionSubscriber(ConnectPoint cp) {
+        Device device = deviceService.getDevice(DeviceId.deviceId(cp.deviceId().toString()));
+        Port port = deviceStore.getPort(device.id(), cp.port());
+        DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                DiscoveredSubscriber.Status.ADDED, true);
+
+        if (!discoveredSubscribersQueue.contains(sub)) {
+            log.info("Adding subscriber to queue: {}/{} with status {} for provisioning",
+                    sub.device.id(), sub.port.number(), sub.status);
+            discoveredSubscribersQueue.add(sub);
+            return true;
+        } else {
+            return false;
         }
     }
 }

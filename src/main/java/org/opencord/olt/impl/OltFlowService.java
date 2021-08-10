@@ -46,6 +46,7 @@ import java.util.Dictionary;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Properties;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
 
@@ -290,26 +291,17 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void addDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile) throws Exception {
-        if (!oltMeterService.hasMeterByBandwidthProfile(sub.device.id(), bandwidthProfile)) {
-            log.info("Missing meter for Bandwidth profile {} on device {}", bandwidthProfile, sub.device.id());
+        oltMeterService.createMeter(sub.device.id(), bandwidthProfile);
+        // TODO handle flow installation error
+        handleDefaultEapolFlow(sub, bandwidthProfile, FlowAction.ADD);
 
-            if (!oltMeterService.hasPendingMeterByBandwidthProfile(sub.device.id(), bandwidthProfile)) {
-                oltMeterService.createMeterForBp(sub.device.id(), bandwidthProfile);
-            }
-            throw new Exception(String.format("Meter is not yet available for %s on device %s",
-                    bandwidthProfile, sub.device.id()));
-        } else {
-            // TODO handle flow installation error
-            handleDefaultEapolFlow(sub, bandwidthProfile, FlowAction.ADD);
-
-            try {
-                cpStatusWriteLock.lock();
-                ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
-                OltPortStatus status = new OltPortStatus(OltFlowsStatus.PENDING_ADD, OltFlowsStatus.NONE, null);
-                cpStatus.put(cp, status);
-            } finally {
-                cpStatusWriteLock.unlock();
-            }
+        try {
+            cpStatusWriteLock.lock();
+            ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+            OltPortStatus status = new OltPortStatus(OltFlowsStatus.PENDING_ADD, OltFlowsStatus.NONE, null);
+            cpStatus.put(cp, status);
+        } finally {
+            cpStatusWriteLock.unlock();
         }
     }
 
@@ -328,8 +320,63 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
-    public void handleSubscriberFlows(DiscoveredSubscriber sub) {
-        log.warn("handleSubscriberFlows unimplemented");
+    public void handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
+        // NOTE that we are taking defaultBandwithProfile as a parameter as that can be configured in the Olt component
+        log.error("Provisioning of subscriber on {}/{} ({}) not supported yet",
+                sub.device.id(), sub.port.number(), sub.portName());
+
+        if (enableEapol) {
+            if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
+                // remove EAPOL flow and throw exception so that we'll retry later
+                removeDefaultFlows(sub, defaultBandwithProfile);
+                throw new Exception(String.format("Awaiting for default flows removal for %s/%s (%s)",
+                        sub.device.id(), sub.port.number(), sub.portName()));
+            }
+        }
+
+        SubscriberAndDeviceInformation si = subsService.get(sub.portName());
+        if (si == null) {
+            log.error("Subscriber information not found in sadis for port {}/{} ({})",
+                    sub.device.id(), sub.port.number(), sub.portName());
+            // NOTE that we are not throwing an exception so that the subscriber is removed from the queue
+            // and we can move on provisioning others
+            return;
+        }
+
+        // Each UniTagInformation has up to 4 meters,
+        // check and/or create all of them
+        AtomicBoolean waitingOnMeter = new AtomicBoolean();
+        waitingOnMeter.set(false);
+        si.uniTagList().stream().forEach(uniTagInfo -> {
+            try {
+                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getUpstreamBandwidthProfile());
+            } catch (Exception e) {
+                waitingOnMeter.set(true);
+            }
+            try {
+                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getDownstreamBandwidthProfile());
+            } catch (Exception e) {
+                waitingOnMeter.set(true);
+            }
+            try {
+                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getUpstreamOltBandwidthProfile());
+            } catch (Exception e) {
+                waitingOnMeter.set(true);
+            }
+            try {
+                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getDownstreamOltBandwidthProfile());
+            } catch (Exception e) {
+                waitingOnMeter.set(true);
+            }
+        });
+        if (waitingOnMeter.get()) {
+            throw new Exception(String.format("Subscriber on port %s/%s (%s) is waiting for meters",
+                    sub.device.id(), sub.port.number(), sub.portName()));
+        }
+
+        // TODO
+        // check for meters and create them if needed
+        // mac address check and flows
     }
 
     public boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber) {
@@ -353,7 +400,6 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     // NOTE this method can most likely be generalized to:
-    // - install or remove flows
     // - handle EAPOL flows with customer VLANs
     private void handleDefaultEapolFlow(DiscoveredSubscriber sub, String bandwidthProfile, FlowAction action)
             throws Exception {

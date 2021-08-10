@@ -154,6 +154,19 @@ public class OltMeterService implements OltMeterServiceInterface {
         }
     }
 
+    @Override
+    public void createMeter(DeviceId deviceId, String bandwidthProfile) throws Exception {
+        if (!hasMeterByBandwidthProfile(deviceId, bandwidthProfile)) {
+            log.info("Missing meter for Bandwidth profile {} on device {}", bandwidthProfile, deviceId);
+
+            if (!hasPendingMeterByBandwidthProfile(deviceId, bandwidthProfile)) {
+                createMeterForBp(deviceId, bandwidthProfile);
+            }
+            throw new Exception(String.format("Meter is not yet available for %s on device %s",
+                    bandwidthProfile, deviceId));
+        }
+    }
+
     /**
      * Returns true if a meter is present in the programmed meters map, only if status is ADDED.
      *
@@ -438,7 +451,7 @@ public class OltMeterService implements OltMeterServiceInterface {
         public void event(MeterEvent meterEvent) {
             pendingRemovalMetersExecutor.execute(() -> {
 
-                log.info("Received meter event {}", meterEvent);
+                log.debug("Received meter event {}", meterEvent);
                 if (meterEvent.type() == MeterEvent.Type.METER_REFERENCE_COUNT_ZERO) {
                     // NOTE looks like we're not receiving this event
                     Meter meter = meterEvent.subject();
@@ -446,7 +459,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                         log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
                         if (deleteMeters) {
                             // only delete the meters if the app is configured to do so
-                             deleteMeter(meter.deviceId(), meter.id());
+//                             deleteMeter(meter.deviceId(), meter.id());
                         }
                     }
                 }

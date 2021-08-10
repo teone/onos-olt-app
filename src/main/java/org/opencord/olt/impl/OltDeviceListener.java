@@ -100,7 +100,7 @@ public class OltDeviceListener implements DeviceListener {
                         discoveredSubscribersQueue.add(sub);
                     }
                 }
-                // TODO we need to check if we have subcriber on this port
+                // TODO we need to check if we have subscriber on this port
                 // and if that's the case we should add an entry to the queue
             }
         }

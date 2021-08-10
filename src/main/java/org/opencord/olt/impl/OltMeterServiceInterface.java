@@ -7,6 +7,14 @@ import java.util.List;
 import java.util.Map;
 
 public interface OltMeterServiceInterface {
+    /**
+     * This method will check for a meter, if not present it will create it and throw an Exception.
+     * @param deviceId DeviceId
+     * @param bandwidthProfile Bandwidth Profile Id
+     * @throws Exception Throws an exception if the meter needs to be created
+     */
+    void createMeter(DeviceId deviceId, String bandwidthProfile) throws Exception;
+
     boolean hasMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile);
 
     boolean hasPendingMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile);
