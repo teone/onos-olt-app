@@ -42,6 +42,7 @@ import org.opencord.sadis.SubscriberAndDeviceInformation;
 import org.opencord.sadis.UniTagInformation;
 
 import java.util.Arrays;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -54,6 +55,10 @@ import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
+import static org.opencord.olt.impl.OltFlowService.OltFlowsStatus.NONE;
+import static org.opencord.olt.impl.OltFlowService.OltFlowsStatus.ADDED;
+import static org.opencord.olt.impl.OltFlowService.OltFlowsStatus.PENDING_ADD;
+import static org.opencord.olt.impl.OltFlowService.OltFlowsStatus.REMOVED;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
 
 public class OltFlowServiceTest extends OltTestHelpers {
@@ -98,19 +103,50 @@ public class OltFlowServiceTest extends OltTestHelpers {
     }
 
     @Test
+    public void testUpdateConnectPointStatus() {
+        // connect points for the test
+        ConnectPoint cp1 = new ConnectPoint(DeviceId.deviceId("test1"), PortNumber.portNumber(1));
+        ConnectPoint cp2 = new ConnectPoint(DeviceId.deviceId("test1"), PortNumber.portNumber(2));
+        ConnectPoint cp3 = new ConnectPoint(DeviceId.deviceId("test1"), PortNumber.portNumber(3));
+
+        // cpStatus map for the test
+        oltFlowService.cpStatus = new HashMap<>();
+        OltFlowService.OltPortStatus cp1Status = new OltFlowService.OltPortStatus(PENDING_ADD, NONE, NONE);
+        oltFlowService.cpStatus.put(cp1, cp1Status);
+
+        //check that we only update the provided value
+        oltFlowService.updateConnectPointStatus(cp1, ADDED, null, null);
+        OltFlowService.OltPortStatus updated = oltFlowService.cpStatus.get(cp1);
+        Assert.assertEquals(ADDED, updated.eapolStatus);
+        Assert.assertEquals(NONE, updated.subscriberFlowsStatus);
+        Assert.assertEquals(NONE, updated.dhcpStatus);
+
+        // check that it creates an entry if it does not exist
+        oltFlowService.updateConnectPointStatus(cp2, PENDING_ADD, NONE, NONE);
+        Assert.assertNotNull(oltFlowService.cpStatus.get(cp2));
+
+        // check that if we create a new entry with null values they're converted to NONE
+        oltFlowService.updateConnectPointStatus(cp3, null, null, null);
+        updated = oltFlowService.cpStatus.get(cp3);
+        Assert.assertEquals(NONE, updated.eapolStatus);
+        Assert.assertEquals(NONE, updated.subscriberFlowsStatus);
+        Assert.assertEquals(NONE, updated.dhcpStatus);
+    }
+
+    @Test
     public void testHasDefaultEapol() {
         DeviceId deviceId = DeviceId.deviceId("test-device");
         ConnectPoint cpWithStatus = new ConnectPoint(deviceId, PortNumber.portNumber(16));
 
         OltFlowService.OltPortStatus portStatusAdded = new OltFlowService.OltPortStatus(
                 OltFlowService.OltFlowsStatus.ADDED,
-                OltFlowService.OltFlowsStatus.NONE,
+                NONE,
                 null
         );
 
         OltFlowService.OltPortStatus portStatusRemoved = new OltFlowService.OltPortStatus(
-                OltFlowService.OltFlowsStatus.REMOVED,
-                OltFlowService.OltFlowsStatus.NONE,
+                REMOVED,
+                NONE,
                 null
         );
 
@@ -121,6 +157,40 @@ public class OltFlowServiceTest extends OltTestHelpers {
         Assert.assertFalse(oltFlowService.hasDefaultEapol(deviceId, PortNumber.portNumber(16)));
 
         Assert.assertFalse(oltFlowService.hasDefaultEapol(deviceId, PortNumber.portNumber(17)));
+    }
+
+    @Test
+    public void tesHasSubscriberFlows() {
+        DeviceId deviceId = DeviceId.deviceId("test-device");
+        PortNumber portNumber = PortNumber.portNumber(16);
+        ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
+
+        OltFlowService.OltPortStatus withDefaultEapol = new OltFlowService.OltPortStatus(
+                ADDED,
+                NONE,
+                NONE
+        );
+
+        OltFlowService.OltPortStatus withDhcp = new OltFlowService.OltPortStatus(
+                REMOVED,
+                NONE,
+                ADDED
+        );
+
+        OltFlowService.OltPortStatus withSubFlow = new OltFlowService.OltPortStatus(
+                REMOVED,
+                ADDED,
+                ADDED
+        );
+
+        oltFlowService.cpStatus.put(cp, withDefaultEapol);
+        Assert.assertFalse(oltFlowService.hasSubscriberFlows(deviceId, portNumber));
+
+        oltFlowService.cpStatus.put(cp, withDhcp);
+        Assert.assertTrue(oltFlowService.hasDhcpFlows(deviceId, portNumber));
+
+        oltFlowService.cpStatus.put(cp, withSubFlow);
+        Assert.assertTrue(oltFlowService.hasSubscriberFlows(deviceId, portNumber));
     }
 
     @Test

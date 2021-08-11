@@ -16,9 +16,13 @@
 
 package org.opencord.olt.cli;
 
+import org.apache.karaf.shell.api.action.Argument;
 import org.apache.karaf.shell.api.action.Command;
+import org.apache.karaf.shell.api.action.Completion;
 import org.apache.karaf.shell.api.action.lifecycle.Service;
 import org.onosproject.cli.AbstractShellCommand;
+import org.onosproject.cli.net.DeviceIdCompleter;
+import org.onosproject.cli.net.PortNumberCompleter;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.PortNumber;
@@ -33,8 +37,19 @@ import java.util.Map;
         description = "Shows information about the OLT ports (default EAPOL, subscriber flows")
 public class ShowPortStatus extends AbstractShellCommand {
 
+    @Argument(index = 0, name = "deviceId", description = "Access device ID",
+            required = false, multiValued = false)
+    @Completion(DeviceIdCompleter.class)
+    private String strDeviceId = null;
+
+    @Argument(index = 1, name = "port", description = "Subscriber port number",
+            required = false, multiValued = false)
+    @Completion(PortNumberCompleter.class)
+    private String strPort = null;
+
     @Override
     protected void doExecute() {
+
         OltFlowServiceInterface service = AbstractShellCommand.get(OltFlowServiceInterface.class);
         Map<ConnectPoint, OltFlowService.OltPortStatus> flowStatus = service.getConnectPointStatus();
         if (flowStatus.isEmpty()) {
@@ -43,8 +58,16 @@ public class ShowPortStatus extends AbstractShellCommand {
 
         Map<DeviceId, Map<PortNumber, OltFlowService.OltPortStatus>> sortedStatus = new HashMap<>();
 
-        flowStatus.forEach((cp, fs) -> {
+        DeviceId deviceId = strDeviceId != null ? DeviceId.deviceId(strDeviceId) : null;
+        PortNumber portNumber = strPort != null ? PortNumber.portNumber(strPort) : null;
 
+        flowStatus.forEach((cp, fs) -> {
+            if (deviceId != null && !deviceId.equals(cp.deviceId())) {
+                return;
+            }
+            if (portNumber != null && !portNumber.equals(cp.port())) {
+                return;
+            }
             Map<PortNumber, OltFlowService.OltPortStatus> portMap = sortedStatus.get(cp.deviceId());
             if (portMap == null) {
                 portMap = new HashMap<>();
@@ -60,7 +83,7 @@ public class ShowPortStatus extends AbstractShellCommand {
     private void display(DeviceId deviceId, Map<PortNumber, OltFlowService.OltPortStatus> portStatus) {
         print("deviceId=%s, managedPorts=%d", deviceId, portStatus.size());
         portStatus.forEach((port, status) ->
-                print("\tport=%s eapolStatus=%s subscriberFlowsStatus=%s macAddress=%s",
-                        port, status.eapolStatus, status.subscriberFlowsStatus, status.macAddress));
+                print("\tport=%s eapolStatus=%s subscriberFlowsStatus=%s dhcpStatus=%s",
+                        port, status.eapolStatus, status.subscriberFlowsStatus, status.dhcpStatus));
     }
 }

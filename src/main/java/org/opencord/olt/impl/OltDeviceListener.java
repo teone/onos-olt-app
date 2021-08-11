@@ -89,7 +89,8 @@ public class OltDeviceListener implements DeviceListener {
                 // NOTE this may need to be handled on DEVICE_REMOVE as we don't disable the NNI
                 oltFlowService.handleNniFlows(device, port, OltFlowService.FlowAction.REMOVE);
             } else {
-
+                // NOTE we are assuming that if a subscriber has default eapol
+                // it does not have subscriber flows
                 if (oltFlowService.hasDefaultEapol(device.id(), port.number())) {
                     DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                             DiscoveredSubscriber.Status.REMOVED, false);
@@ -99,9 +100,18 @@ public class OltDeviceListener implements DeviceListener {
                                 sub.device.id(), sub.port.number(), sub.status);
                         discoveredSubscribersQueue.add(sub);
                     }
+                } else if (
+                        oltFlowService.hasSubscriberFlows(device.id(), port.number()) ||
+                                oltFlowService.hasDhcpFlows(device.id(), port.number())
+                ) {
+                    DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                            DiscoveredSubscriber.Status.REMOVED, true);
+                    if (!discoveredSubscribersQueue.contains(sub)) {
+                        log.info("Adding provisioned subscriber to queue: {}/{} with status {}",
+                                sub.device.id(), sub.port.number(), sub.status);
+                        discoveredSubscribersQueue.add(sub);
+                    }
                 }
-                // TODO we need to check if we have subscriber on this port
-                // and if that's the case we should add an entry to the queue
             }
         }
     }

@@ -15,10 +15,11 @@ public interface OltFlowServiceInterface {
                 throws Exception;
 
     void handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBpId) throws Exception;
-
     void handleNniFlows(Device device, Port port, OltFlowService.FlowAction action);
 
     boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber);
+    boolean hasDhcpFlows(DeviceId deviceId, PortNumber portNumber);
+    boolean hasSubscriberFlows(DeviceId deviceId, PortNumber portNumber);
 
     void purgeDeviceFlows(DeviceId deviceId);
 

@@ -10,10 +10,11 @@ public interface OltService {
      * Provisions connectivity for a subscriber on an access device.
      * Installs flows for all uni tag information
      *
-     * @param port subscriber's connection point
+     * @param cp subscriber's connection point
      * @return true if successful false otherwise
      */
-    boolean provisionSubscriber(ConnectPoint port);
+    boolean provisionSubscriber(ConnectPoint cp);
+    boolean removeSubscriber(ConnectPoint cp);
 
      List<DeviceId> fetchOlts();
 }

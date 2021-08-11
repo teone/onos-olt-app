@@ -232,6 +232,23 @@ public class Olt implements OltService {
     }
 
     @Override
+    public boolean removeSubscriber(ConnectPoint cp) {
+        Device device = deviceService.getDevice(DeviceId.deviceId(cp.deviceId().toString()));
+        Port port = deviceStore.getPort(device.id(), cp.port());
+        DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                DiscoveredSubscriber.Status.REMOVED, true);
+
+        if (!discoveredSubscribersQueue.contains(sub)) {
+            log.info("Adding subscriber to queue: {}/{} with status {} for removal",
+                    sub.device.id(), sub.port.number(), sub.status);
+            discoveredSubscribersQueue.add(sub);
+            return true;
+        } else {
+            return false;
+        }
+    }
+
+    @Override
     public List<DeviceId> fetchOlts() {
         List<DeviceId> olts = new ArrayList<>();
         Iterable<Device> devices = deviceService.getDevices();
