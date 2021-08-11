@@ -2,6 +2,7 @@ package org.opencord.olt.impl;
 
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.meter.MeterId;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
 
 import java.util.List;
 import java.util.Map;
@@ -14,6 +15,15 @@ public interface OltMeterServiceInterface {
      * @throws Exception Throws an exception if the meter needs to be created
      */
     void createMeter(DeviceId deviceId, String bandwidthProfile) throws Exception;
+
+    /**
+     * This method will check for all the meters specified in the sadis uniTagList,
+     * if not present it will create it and throw an Exception.
+     * @param deviceId DeviceId
+     * @param si SubscriberAndDeviceInformation
+     * @throws Exception Throws an exception if any of the meters need to be created
+     */
+    void createMeters(DeviceId deviceId, SubscriberAndDeviceInformation si) throws Exception;
 
     boolean hasMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile);
 

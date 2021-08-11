@@ -15,6 +15,7 @@ import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
+import org.onosproject.net.Host;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
@@ -27,11 +28,13 @@ import org.onosproject.net.flowobjective.FlowObjectiveService;
 import org.onosproject.net.flowobjective.Objective;
 import org.onosproject.net.flowobjective.ObjectiveContext;
 import org.onosproject.net.flowobjective.ObjectiveError;
+import org.onosproject.net.host.HostService;
 import org.onosproject.net.meter.MeterId;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
 import org.opencord.sadis.SubscriberAndDeviceInformation;
+import org.opencord.sadis.UniTagInformation;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
@@ -45,6 +48,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Dictionary;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Optional;
 import java.util.Properties;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.locks.Lock;
@@ -95,6 +99,9 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected FlowRuleService flowRuleService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected HostService hostService;
 
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
     protected BaseInformationService<BandwidthProfileInformation> bpService;
@@ -322,8 +329,6 @@ public class OltFlowService implements OltFlowServiceInterface {
     @Override
     public void handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
         // NOTE that we are taking defaultBandwithProfile as a parameter as that can be configured in the Olt component
-        log.error("Provisioning of subscriber on {}/{} ({}) not supported yet",
-                sub.device.id(), sub.port.number(), sub.portName());
 
         if (enableEapol) {
             if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
@@ -343,40 +348,20 @@ public class OltFlowService implements OltFlowServiceInterface {
             return;
         }
 
-        // Each UniTagInformation has up to 4 meters,
-        // check and/or create all of them
-        AtomicBoolean waitingOnMeter = new AtomicBoolean();
-        waitingOnMeter.set(false);
-        si.uniTagList().stream().forEach(uniTagInfo -> {
-            try {
-                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getUpstreamBandwidthProfile());
-            } catch (Exception e) {
-                waitingOnMeter.set(true);
-            }
-            try {
-                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getDownstreamBandwidthProfile());
-            } catch (Exception e) {
-                waitingOnMeter.set(true);
-            }
-            try {
-                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getUpstreamOltBandwidthProfile());
-            } catch (Exception e) {
-                waitingOnMeter.set(true);
-            }
-            try {
-                oltMeterService.createMeter(sub.device.id(), uniTagInfo.getDownstreamOltBandwidthProfile());
-            } catch (Exception e) {
-                waitingOnMeter.set(true);
-            }
-        });
-        if (waitingOnMeter.get()) {
-            throw new Exception(String.format("Subscriber on port %s/%s (%s) is waiting for meters",
+        // NOTE createMeters will throw if the meters are not ready
+        oltMeterService.createMeters(sub.device.id(), si);
+
+        // NOTE we may need to add the DHCP flow regardless so that the host can be discovered and the MacAddress added
+        // this should be a TT only case
+        if (isMacLearningEnabled(si) && !isMacAddressAvailable(sub.device.id(), sub.port, si)) {
+            throw new Exception(String.format("Awaiting for macAddress on %s/%s (%s)",
                     sub.device.id(), sub.port.number(), sub.portName()));
         }
 
-        // TODO
-        // check for meters and create them if needed
-        // mac address check and flows
+        // TODO add flows
+
+        log.error("Provisioning of subscriber on {}/{} ({}) not supported yet",
+                sub.device.id(), sub.port.number(), sub.portName());
     }
 
     public boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber) {
@@ -731,6 +716,53 @@ public class OltFlowService implements OltFlowServiceInterface {
                 });
         flowObjectiveService.filter(deviceId, pppoed);
     }
+
+    private boolean isMacLearningEnabled(SubscriberAndDeviceInformation si) {
+        AtomicBoolean requiresMacLearning = new AtomicBoolean();
+        requiresMacLearning.set(false);
+
+        si.uniTagList().stream().forEach(uniTagInfo -> {
+            if (uniTagInfo.getEnableMacLearning()) {
+                requiresMacLearning.set(true);
+            }
+        });
+
+        return requiresMacLearning.get();
+    }
+
+    /**
+     * Checks whether the subscriber has the MacAddress configured or discovered.
+     * @param deviceId DeviceId for this subscriber
+     * @param port Port for this subscriber
+     * @param si SubscriberAndDeviceInformation
+     * @return boolean
+     */
+    protected boolean isMacAddressAvailable(DeviceId deviceId, Port port, SubscriberAndDeviceInformation si) {
+        AtomicBoolean isConfigured = new AtomicBoolean();
+        isConfigured.set(true);
+
+        si.uniTagList().stream().forEach(uniTagInfo -> {
+            boolean configureMac = isMacAddressValid(uniTagInfo);
+            boolean discoveredMac = false;
+            Optional<Host> optHost = hostService.getConnectedHosts(new ConnectPoint(deviceId, port.number()))
+                    .stream().filter(host -> host.vlan().equals(uniTagInfo.getPonCTag())).findFirst();
+            if (optHost.isPresent() && optHost.get().mac() != null) {
+                discoveredMac = true;
+            }
+            if (!configureMac && !discoveredMac) {
+                isConfigured.set(false);
+            }
+        });
+
+        return isConfigured.get();
+    }
+
+    private boolean isMacAddressValid(UniTagInformation tagInformation) {
+        return tagInformation.getConfiguredMacAddress() != null &&
+                !tagInformation.getConfiguredMacAddress().trim().equals("") &&
+                !MacAddress.NONE.equals(MacAddress.valueOf(tagInformation.getConfiguredMacAddress()));
+    }
+
     public enum OltFlowsStatus {
         NONE,
         PENDING_ADD,

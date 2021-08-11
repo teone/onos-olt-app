@@ -34,7 +34,9 @@ import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.ArrayList;
 import java.util.Dictionary;
+import java.util.List;
 import java.util.Properties;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
@@ -181,8 +183,10 @@ public class Olt implements OltService {
                         oltFlowService.handleSubscriberFlows(sub, defaultBpId);
                         discoveredSubscribersQueue.remove(sub);
                     } catch (Exception e) {
-                        log.error("Provisioning of subscriber on {}/{} ({}) postponed: {}",
-                                sub.device.id(), sub.port.number(), sub.portName(), e.getMessage());
+                        if (log.isTraceEnabled()) {
+                            log.trace("Provisioning of subscriber on {}/{} ({}) postponed: {}",
+                                    sub.device.id(), sub.port.number(), sub.portName(), e.getMessage());
+                        }
                     }
                 } else {
                     // this is a port event (ENABLED/DISABLED)
@@ -191,8 +195,10 @@ public class Olt implements OltService {
                         oltFlowService.handleBasicPortFlows(sub, defaultBpId);
                         discoveredSubscribersQueue.remove(sub);
                     } catch (Exception e) {
-                        log.error("Processing of port {}/{} postponed: {}",
-                                sub.device.id(), sub.port.number(), e.getMessage());
+                        if (log.isTraceEnabled()) {
+                            log.trace("Processing of port {}/{} postponed: {}",
+                                    sub.device.id(), sub.port.number(), e.getMessage());
+                        }
                     }
                 }
             }
@@ -223,5 +229,18 @@ public class Olt implements OltService {
         } else {
             return false;
         }
+    }
+
+    @Override
+    public List<DeviceId> fetchOlts() {
+        List<DeviceId> olts = new ArrayList<>();
+        Iterable<Device> devices = deviceService.getDevices();
+        for (Device d : devices) {
+            if (oltDeviceService.isOlt(d)) {
+                // So this is indeed an OLT device
+                olts.add(d.id());
+            }
+        }
+        return olts;
     }
 }

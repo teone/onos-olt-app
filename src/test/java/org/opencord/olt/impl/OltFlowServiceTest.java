@@ -9,6 +9,7 @@ import org.onlab.packet.ChassisId;
 import org.onlab.packet.EthType;
 import org.onlab.packet.IPv4;
 import org.onlab.packet.IPv6;
+import org.onlab.packet.MacAddress;
 import org.onlab.packet.TpPort;
 import org.onlab.packet.VlanId;
 import org.onosproject.cfg.ComponentConfigAdapter;
@@ -19,8 +20,12 @@ import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.DefaultAnnotations;
 import org.onosproject.net.DefaultDevice;
+import org.onosproject.net.DefaultHost;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
+import org.onosproject.net.Host;
+import org.onosproject.net.HostId;
+import org.onosproject.net.HostLocation;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
@@ -28,10 +33,19 @@ import org.onosproject.net.flow.criteria.Criteria;
 import org.onosproject.net.flowobjective.DefaultFilteringObjective;
 import org.onosproject.net.flowobjective.FilteringObjective;
 import org.onosproject.net.flowobjective.FlowObjectiveService;
+import org.onosproject.net.host.HostService;
 import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.provider.ProviderId;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
+import org.opencord.sadis.UniTagInformation;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.LinkedList;
+import java.util.List;
+import java.util.Set;
 
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.argThat;
@@ -70,6 +84,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         oltFlowService.coreService = Mockito.spy(new CoreServiceAdapter());
         oltFlowService.oltMeterService = Mockito.mock(OltMeterService.class);
         oltFlowService.flowObjectiveService = Mockito.mock(FlowObjectiveService.class);
+        oltFlowService.hostService = Mockito.mock(HostService.class);
 
         doReturn(Mockito.mock(BaseInformationService.class))
                 .when(oltFlowService.sadisService).getSubscriberInfoService();
@@ -363,5 +378,48 @@ public class OltFlowServiceTest extends OltTestHelpers {
         // invoked only twice, LLDP and DHCP
         verify(oltFlowService.flowObjectiveService, times(2))
                 .filter(eq(addedSub.device.id()), any());
+    }
+
+    @Test
+    public void testIsMaacAddressAvailableViaMacLearning() {
+
+        // create a single service that requires macLearning to be enabled
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        VlanId hsiaCtag = VlanId.vlanId((short) 11);
+        UniTagInformation hsia = new UniTagInformation.Builder()
+                .setPonCTag(hsiaCtag)
+                .setEnableMacLearning(true).build();
+        uniTagInformationList.add(hsia);
+
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+
+        // with no hosts discovered, return false
+        boolean isMacAvailable = oltFlowService.isMacAddressAvailable(testDevice.id(), uniUpdateEnabled, si);
+        Assert.assertFalse(isMacAvailable);
+
+        // with a discovered host, return true
+        Host fakeHost = new DefaultHost(ProviderId.NONE, HostId.hostId(MacAddress.NONE), MacAddress.ZERO,
+                hsiaCtag, HostLocation.NONE, new HashSet<>(), DefaultAnnotations.builder().build());
+        Set<Host> hosts = new HashSet<>(Arrays.asList(fakeHost));
+        doReturn(hosts).when(oltFlowService.hostService).getConnectedHosts((ConnectPoint) any());
+
+        isMacAvailable = oltFlowService.isMacAddressAvailable(testDevice.id(), uniUpdateEnabled, si);
+        Assert.assertTrue(isMacAvailable);
+    }
+
+    @Test
+    public void testIsMaacAddressAvailableViaConfiguration() {
+        // create a single service that has a macAddress configure
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        UniTagInformation hsia = new UniTagInformation.Builder()
+                .setConfiguredMacAddress("2e:0a:00:01:00:00")
+                .build();
+        uniTagInformationList.add(hsia);
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+
+        boolean isMacAvailable = oltFlowService.isMacAddressAvailable(testDevice.id(), uniUpdateEnabled, si);
+        Assert.assertTrue(isMacAvailable);
     }
 }

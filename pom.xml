@@ -122,7 +122,6 @@
                     <sourceDirectories>${project.build.sourceDirectory}</sourceDirectories>
                 </configuration>
             </plugin>
-
             <plugin>
                 <groupId>org.onosproject</groupId>
                 <artifactId>onos-maven-plugin</artifactId>

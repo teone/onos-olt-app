@@ -22,6 +22,7 @@ import org.onosproject.store.service.StorageService;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
@@ -44,6 +45,7 @@ import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -164,6 +166,52 @@ public class OltMeterService implements OltMeterServiceInterface {
             }
             throw new Exception(String.format("Meter is not yet available for %s on device %s",
                     bandwidthProfile, deviceId));
+        }
+    }
+
+    @Override
+    public void createMeters(DeviceId deviceId, SubscriberAndDeviceInformation si) throws Exception {
+        // Each UniTagInformation has up to 4 meters,
+        // check and/or create all of them
+        AtomicBoolean waitingOnMeter = new AtomicBoolean();
+        waitingOnMeter.set(false);
+        Map<String, List<String>> pendingMeters = new HashMap<>();
+        si.uniTagList().stream().forEach(uniTagInfo -> {
+            String serviceName = uniTagInfo.getServiceName();
+            pendingMeters.put(serviceName, new LinkedList<>());
+            String usBp = uniTagInfo.getUpstreamBandwidthProfile();
+            String dsBp = uniTagInfo.getDownstreamBandwidthProfile();
+            String oltUBp = uniTagInfo.getDownstreamOltBandwidthProfile();
+            String oltDsBp = uniTagInfo.getUpstreamOltBandwidthProfile();
+            try {
+                createMeter(deviceId, usBp);
+            } catch (Exception e) {
+                pendingMeters.get(serviceName).add(usBp);
+                waitingOnMeter.set(true);
+            }
+            try {
+                createMeter(deviceId, dsBp);
+            } catch (Exception e) {
+                pendingMeters.get(serviceName).add(usBp);
+                waitingOnMeter.set(true);
+            }
+            try {
+                createMeter(deviceId, oltUBp);
+            } catch (Exception e) {
+                pendingMeters.get(serviceName).add(usBp);
+                waitingOnMeter.set(true);
+            }
+            try {
+                createMeter(deviceId, oltDsBp);
+            } catch (Exception e) {
+                pendingMeters.get(serviceName).add(usBp);
+                waitingOnMeter.set(true);
+            }
+        });
+        if (waitingOnMeter.get()) {
+            throw new Exception(String.format("Meters %s on device %s are not " +
+                            "installed yet (requested by subscriber %s)",
+                    pendingMeters, deviceId, si.id()));
         }
     }
 
@@ -452,12 +500,12 @@ public class OltMeterService implements OltMeterServiceInterface {
             pendingRemovalMetersExecutor.execute(() -> {
 
                 log.debug("Received meter event {}", meterEvent);
-                if (meterEvent.type() == MeterEvent.Type.METER_REFERENCE_COUNT_ZERO) {
+                if (meterEvent.type().equals(MeterEvent.Type.METER_REFERENCE_COUNT_ZERO)) {
                     // NOTE looks like we're not receiving this event
                     Meter meter = meterEvent.subject();
                     if (appId.equals(meter.appId())) {
-                        log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
                         if (deleteMeters) {
+                            log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
                             // only delete the meters if the app is configured to do so
 //                             deleteMeter(meter.deviceId(), meter.id());
                         }
