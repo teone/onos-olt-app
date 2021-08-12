@@ -2,6 +2,7 @@ package org.opencord.olt.impl;
 
 import org.onosproject.net.Device;
 import org.onosproject.net.Port;
+import org.onosproject.net.device.DeviceService;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
@@ -11,6 +12,8 @@ import org.osgi.service.component.annotations.Component;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
 import org.slf4j.Logger;
+
+import java.util.Optional;
 
 import static org.slf4j.LoggerFactory.getLogger;
 
@@ -24,11 +27,15 @@ public class OltDeviceService implements OltDeviceServiceInterface {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile SadisService sadisService;
 
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected volatile DeviceService deviceService;
+
     @Activate
     public void activate() {
         subsService = sadisService.getSubscriberInfoService();
-        log.info("Activated {}", subsService);
+        log.info("Activated");
     }
+
     private boolean checkSadisRunning() {
         if (subsService == null) {
             log.warn("Sadis is not running");
@@ -75,6 +82,14 @@ public class OltDeviceService implements OltDeviceServiceInterface {
             return port.number().toLong() == deviceInfo.uplinkPort();
         }
         return false;
+    }
+
+    @Override
+    public Optional<Port> getNniPort(Device device) {
+        SubscriberAndDeviceInformation deviceInfo = getOltInfo(device);
+        return deviceService.getPorts(device.id()).stream()
+                .filter(p -> p.number().toLong() == deviceInfo.uplinkPort())
+                .findFirst();
     }
 
     public void bindSadisService(SadisService service) {

@@ -1,12 +1,15 @@
 package org.opencord.olt.impl;
 
+import com.google.common.collect.ImmutableMap;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
+import org.opencord.sadis.UniTagInformation;
 
 import java.util.Map;
+import java.util.Set;
 
 public interface OltFlowServiceInterface {
 
@@ -24,4 +27,5 @@ public interface OltFlowServiceInterface {
     void purgeDeviceFlows(DeviceId deviceId);
 
     Map<ConnectPoint, OltFlowService.OltPortStatus> getConnectPointStatus();
+    ImmutableMap<ConnectPoint, Set<UniTagInformation>> getProgrammedSusbcribers();
 }

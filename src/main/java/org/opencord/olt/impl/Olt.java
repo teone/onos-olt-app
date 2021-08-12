@@ -221,6 +221,8 @@ public class Olt implements OltService {
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                 DiscoveredSubscriber.Status.ADDED, true);
 
+        // TODO check if subscriber has already been provisioned
+
         if (!discoveredSubscribersQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for provisioning",
                     sub.device.id(), sub.port.number(), sub.status);
@@ -237,6 +239,8 @@ public class Olt implements OltService {
         Port port = deviceStore.getPort(device.id(), cp.port());
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                 DiscoveredSubscriber.Status.REMOVED, true);
+
+        // TODO check if subscriber is provisioned
 
         if (!discoveredSubscribersQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for removal",
@@ -260,4 +264,6 @@ public class Olt implements OltService {
         }
         return olts;
     }
+
+
 }

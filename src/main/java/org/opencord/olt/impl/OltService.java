@@ -2,7 +2,6 @@ package org.opencord.olt.impl;
 
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.DeviceId;
-
 import java.util.List;
 
 public interface OltService {

@@ -76,6 +76,9 @@ public class OltDeviceListener implements DeviceListener {
                 }
                 oltFlowService.handleNniFlows(device, port, action);
             } else {
+
+
+
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                         DiscoveredSubscriber.Status.ADDED, false);
                 if (!discoveredSubscribersQueue.contains(sub)) {

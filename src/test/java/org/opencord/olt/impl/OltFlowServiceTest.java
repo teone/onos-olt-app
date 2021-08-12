@@ -451,7 +451,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
     }
 
     @Test
-    public void testIsMaacAddressAvailableViaMacLearning() {
+    public void testIsMacAddressAvailableViaMacLearning() {
 
         // create a single service that requires macLearning to be enabled
         List<UniTagInformation> uniTagInformationList = new LinkedList<>();
@@ -491,5 +491,54 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         boolean isMacAvailable = oltFlowService.isMacAddressAvailable(testDevice.id(), uniUpdateEnabled, si);
         Assert.assertTrue(isMacAvailable);
+    }
+
+    @Test
+    public void testHandleSubscriberDhcpFlowsAdd() {
+
+        String usBp = "usBp";
+        String usOltBp = "usOltBp";
+        oltFlowService.enableDhcpV4 = true;
+
+        // create two services, one requires DHCP the other doesn't
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        VlanId hsiaCtag = VlanId.vlanId((short) 11);
+        UniTagInformation hsia = new UniTagInformation.Builder()
+                .setPonCTag(hsiaCtag)
+                .setTechnologyProfileId(64)
+                .setUniTagMatch(VlanId.vlanId(VlanId.NO_VID))
+                .setUpstreamBandwidthProfile(usBp)
+                .setUpstreamOltBandwidthProfile(usOltBp)
+                .setIsDhcpRequired(true).build();
+        UniTagInformation mc = new UniTagInformation.Builder()
+                .setIsDhcpRequired(false).build();
+        uniTagInformationList.add(hsia);
+        uniTagInformationList.add(mc);
+
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+
+        // return meter IDs
+        doReturn(MeterId.meterId(2)).when(oltFlowService.oltMeterService)
+                .getMeterIdForBandwidthProfile(addedSub.device.id(), usBp);
+        doReturn(MeterId.meterId(3)).when(oltFlowService.oltMeterService)
+                .getMeterIdForBandwidthProfile(addedSub.device.id(), usOltBp);
+
+        // TODO improve the matches on the filter
+        FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
+                .permit()
+                .withKey(Criteria.matchInPort(addedSub.port.number()))
+                .addCondition(Criteria.matchEthType(EthType.EtherType.IPV4.ethType()))
+                .addCondition(Criteria.matchIPProtocol(IPv4.PROTOCOL_UDP))
+                .addCondition(Criteria.matchUdpSrc(TpPort.tpPort(68)))
+                .addCondition(Criteria.matchUdpDst(TpPort.tpPort(67)))
+                .fromApp(testAppId)
+                .withPriority(10000)
+                .add();
+
+        oltFlowService.handleSubscriberDhcpFlows(addedSub.device.id(), addedSub.port,
+                OltFlowService.FlowAction.ADD, si);
+        verify(oltFlowService.flowObjectiveService, times(1))
+                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
     }
 }
