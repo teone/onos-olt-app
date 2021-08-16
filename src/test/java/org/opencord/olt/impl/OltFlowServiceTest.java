@@ -197,7 +197,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
     public void testHandleBasicPortFlowsNoEapol() throws Exception {
         oltFlowService.enableEapol = false;
 
-        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT);
+        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
         // if eapol is not enabled there's nothing we need to do,
         // so make sure we don't even call sadis
         verify(oltFlowService.subsService, never()).get(any());
@@ -208,7 +208,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         // if we need eapol, make sure there is meter for it
         // if there is no meter create one and return
 
-        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT);
+        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
 
         // we check for an existing meter (not present)
         verify(oltFlowService.oltMeterService, times(1))
@@ -232,7 +232,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         // we already have a pending meter, so we just wait for it to be installed
         doReturn(true).when(oltFlowService.oltMeterService)
                 .hasPendingMeterByBandwidthProfile(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
-        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT);
+        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
 
         // we check for an existing meter (not present)
         verify(oltFlowService.oltMeterService, times(1))
@@ -280,7 +280,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 .add();
 
 
-        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT);
+        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
 
         // we check for an existing meter (present)
         // FIXME understand why the above test invokes this call and this one doesn't
@@ -322,7 +322,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 )
                 .add();
 
-        oltFlowService.handleBasicPortFlows(removedSub, DEFAULT_BP_ID_DEFAULT);
+        oltFlowService.handleBasicPortFlows(removedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
 
         verify(oltFlowService.flowObjectiveService, times(1))
                 .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));

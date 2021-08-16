@@ -100,7 +100,7 @@ public class OltTest extends OltTestHelpers {
 
         // check that we're calling the correct method
         TimeUnit.SECONDS.sleep(1);
-        verify(component.oltFlowService, times(1)).handleBasicPortFlows(eq(sub),
+        verify(component.oltFlowService, times(1)).handleBasicPortFlows(eq(sub), eq(DEFAULT_BP_ID_DEFAULT),
                 eq(DEFAULT_BP_ID_DEFAULT));
 
         // check if the method doesn't throw an exception we're removing the subscriber from the queue
@@ -109,7 +109,7 @@ public class OltTest extends OltTestHelpers {
 
     @Test
     public void testProcessDiscoveredSubscribersBasicPortException() throws Exception {
-        doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(),
+        doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(), eq(DEFAULT_BP_ID_DEFAULT),
                 eq(DEFAULT_BP_ID_DEFAULT));
 
         // adding the discovered subscriber to the queue
@@ -118,7 +118,8 @@ public class OltTest extends OltTestHelpers {
         // check that we're calling the correct method,
         // since the subscriber is not removed from the queue we're calling the method multiple times
         TimeUnit.SECONDS.sleep(1);
-        verify(component.oltFlowService, atLeastOnce()).handleBasicPortFlows(eq(sub), eq(DEFAULT_BP_ID_DEFAULT));
+        verify(component.oltFlowService, atLeastOnce()).handleBasicPortFlows(eq(sub), eq(DEFAULT_BP_ID_DEFAULT),
+                eq(DEFAULT_BP_ID_DEFAULT));
 
         // check if the method throws an exception we're not removing the subscriber from the queue
         assert component.discoveredSubscribersQueue.size() == 1;

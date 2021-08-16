@@ -159,7 +159,10 @@ public class OltMeterService implements OltMeterServiceInterface {
     @Override
     public void createMeter(DeviceId deviceId, String bandwidthProfile) throws Exception {
         if (!hasMeterByBandwidthProfile(deviceId, bandwidthProfile)) {
-            log.info("Missing meter for Bandwidth profile {} on device {}", bandwidthProfile, deviceId);
+            // NOTE this is at trace level as it's constantly called by the queue processor
+            if (log.isTraceEnabled()) {
+                log.trace("Missing meter for Bandwidth profile {} on device {}", bandwidthProfile, deviceId);
+            }
 
             if (!hasPendingMeterByBandwidthProfile(deviceId, bandwidthProfile)) {
                 createMeterForBp(deviceId, bandwidthProfile);
@@ -507,7 +510,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                         if (deleteMeters) {
                             log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
                             // only delete the meters if the app is configured to do so
-//                             deleteMeter(meter.deviceId(), meter.id());
+                             deleteMeter(meter.deviceId(), meter.id());
                         }
                     }
                 }

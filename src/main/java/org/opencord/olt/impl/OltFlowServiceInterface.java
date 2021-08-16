@@ -14,7 +14,7 @@ import java.util.Set;
 public interface OltFlowServiceInterface {
 
     void handleBasicPortFlows(
-            DiscoveredSubscriber sub, String defaultBpId)
+            DiscoveredSubscriber sub, String defaultBpId, String oltBandwidthProfile)
                 throws Exception;
 
     void handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBpId) throws Exception;

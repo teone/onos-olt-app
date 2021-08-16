@@ -174,7 +174,7 @@ public class Olt implements OltService {
         while (true) {
             if (!discoveredSubscribersQueue.isEmpty()) {
                 DiscoveredSubscriber sub = discoveredSubscribersQueue.peek();
-                log.info("Processing discovered subscriber on port {}/{} with status {}",
+                log.debug("Processing subscriber on port {}/{} with status {}",
                         sub.device.id(), sub.port.number(), sub.status);
 
                 if (sub.provisionSubscriber) {
@@ -192,7 +192,7 @@ public class Olt implements OltService {
                     // this is a port event (ENABLED/DISABLED)
                     // means no subscriber was provisioned on that port
                     try {
-                        oltFlowService.handleBasicPortFlows(sub, defaultBpId);
+                        oltFlowService.handleBasicPortFlows(sub, defaultBpId, defaultBpId);
                         discoveredSubscribersQueue.remove(sub);
                     } catch (Exception e) {
                         if (log.isTraceEnabled()) {
