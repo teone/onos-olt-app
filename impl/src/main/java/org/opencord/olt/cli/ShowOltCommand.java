@@ -24,7 +24,7 @@ import org.apache.karaf.shell.api.action.Command;
 import org.apache.karaf.shell.api.action.lifecycle.Service;
 import org.onosproject.cli.AbstractShellCommand;
 import org.onosproject.net.DeviceId;
-import org.opencord.olt.impl.OltService;
+import org.opencord.olt.OltService;
 
 import java.util.List;
 

@@ -25,7 +25,7 @@ import org.onosproject.cli.net.DeviceIdCompleter;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.PortNumber;
-import org.opencord.olt.impl.OltService;
+import org.opencord.olt.OltService;
 
 /**
  * Adds a subscriber to an access device.

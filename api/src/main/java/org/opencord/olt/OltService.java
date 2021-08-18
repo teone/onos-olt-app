@@ -1,4 +1,4 @@
-package org.opencord.olt.impl;
+package org.opencord.olt;
 
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.DeviceId;

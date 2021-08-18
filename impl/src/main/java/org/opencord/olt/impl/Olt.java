@@ -23,6 +23,7 @@ import org.onosproject.net.Port;
 import org.onosproject.net.device.DeviceListener;
 import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.device.DeviceStore;
+import org.opencord.olt.OltService;
 import org.opencord.sadis.SadisService;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;

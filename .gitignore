@@ -11,3 +11,6 @@
 
 # Build Artifacts
 target/
+
+# Tools
+install.sh

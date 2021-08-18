@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <parent>
+        <artifactId>olt</artifactId>
+        <groupId>org.opencord</groupId>
+        <version>5.0.0-SNAPSHOT</version>
+        <relativePath>../pom.xml</relativePath>
+    </parent>
+    <modelVersion>4.0.0</modelVersion>
+    <groupId>org.opencord</groupId>
+    <artifactId>olt-app</artifactId>
+    <version>5.0.0-SNAPSHOT</version>
+    <packaging>bundle</packaging>
+    <description>OLT application for CORD</description>
+    <properties>
+        <onos.app.name>org.opencord.olt</onos.app.name>
+        <onos.app.title>OLT Access Management</onos.app.title>
+        <onos.app.origin>OpenCord</onos.app.origin>
+        <onos.app.category>default</onos.app.category>
+        <onos.app.url>http://opencord.org</onos.app.url>
+        <onos.app.readme>
+            CORD OLT Access management application
+        </onos.app.readme>
+    </properties>
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.onosproject</groupId>
+                <artifactId>onos-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+</project>
