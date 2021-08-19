@@ -1,9 +1,18 @@
 package org.opencord.olt.impl;
 
+import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
 import org.onlab.packet.ChassisId;
+import org.onosproject.cluster.ClusterService;
+import org.onosproject.cluster.ControllerNode;
+import org.onosproject.cluster.DefaultControllerNode;
+import org.onosproject.cluster.Leader;
+import org.onosproject.cluster.Leadership;
+import org.onosproject.cluster.LeadershipService;
+import org.onosproject.cluster.NodeId;
+import org.onosproject.mastership.MastershipService;
 import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.DefaultAnnotations;
 import org.onosproject.net.DefaultDevice;
@@ -14,7 +23,6 @@ import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceEvent;
 import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.provider.ProviderId;
-
 import java.util.LinkedList;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -29,25 +37,54 @@ public class OltDeviceListenerTest extends OltTestHelpers {
     private OltDeviceListener oltDeviceListener;
 
     protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue =
-            new LinkedBlockingQueue<DiscoveredSubscriber>();
+            new LinkedBlockingQueue<>();
 
-    private DeviceId deviceId = DeviceId.deviceId("test-device");
-    private Device testDevice = new DefaultDevice(ProviderId.NONE, deviceId, Device.Type.OLT,
+    private final DeviceId deviceId = DeviceId.deviceId("test-device");
+    private final Device testDevice = new DefaultDevice(ProviderId.NONE, deviceId, Device.Type.OLT,
             "testManufacturer", "1.0", "1.0", "SN", new ChassisId(1));
 
     @Before
     public void setUp() {
-        OltDeviceService oltDeviceService = Mockito.mock(OltDeviceService.class);
+        MastershipService mastershipService = Mockito.mock(MastershipService.class);
+        OltDeviceServiceInterface oltDeviceService = Mockito.mock(OltDeviceService.class);
         OltFlowServiceInterface oltFlowService = Mockito.mock(OltFlowService.class);
         OltMeterServiceInterface oltMeterService = Mockito.mock(OltMeterService.class);
         DeviceService deviceService = Mockito.mock(DeviceService.class);
-        oltDeviceListener = new OltDeviceListener(oltDeviceService, oltFlowService, oltMeterService,
-                deviceService, discoveredSubscribersQueue);
+        LeadershipService leadershipService = Mockito.mock(LeadershipService.class);
+        ClusterService clusterService = Mockito.mock(ClusterService.class);
+
+        OltDeviceListener baseClass = new OltDeviceListener(clusterService, mastershipService,
+                leadershipService, deviceService, oltDeviceService, oltFlowService,
+                oltMeterService, discoveredSubscribersQueue);
+        oltDeviceListener = Mockito.spy(baseClass);
+
+
+        discoveredSubscribersQueue.clear();
+    }
+
+    @Test
+    public void testIsLocalLeader() {
+
+        NodeId nodeId = NodeId.nodeId("node1");
+        ControllerNode localNode = new DefaultControllerNode(nodeId, "host1");
+        DeviceId deviceId1 = DeviceId.deviceId("availableNotLocal");
+        DeviceId deviceId2 = DeviceId.deviceId("notAvailableButLocal");
+        Leadership leadership = new Leadership(deviceId2.toString(), new Leader(nodeId, 0, 0), new LinkedList<>());
+
+        doReturn(true).when(oltDeviceListener.deviceService).isAvailable(eq(deviceId1));
+        doReturn(false).when(oltDeviceListener.mastershipService).isLocalMaster(eq(deviceId1));
+        Assert.assertFalse(oltDeviceListener.isLocalLeader(deviceId1));
+
+        doReturn(false).when(oltDeviceListener.deviceService).isAvailable(eq(deviceId1));
+        doReturn(localNode).when(oltDeviceListener.clusterService).getLocalNode();
+        doReturn(leadership).when(oltDeviceListener.leadershipService).runForLeadership(eq(deviceId2.toString()));
+        Assert.assertTrue(oltDeviceListener.isLocalLeader(deviceId2));
+
     }
 
     @Test
     public void testDeviceDisconnection() {
-        doReturn(true).when(oltDeviceListener.oltDevice).isOlt(testDevice);
+        doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
         doReturn(false).when(oltDeviceListener.deviceService).isAvailable(any());
         doReturn(new LinkedList<Port>()).when(oltDeviceListener.deviceService).getPorts(any());
 
@@ -59,10 +96,33 @@ public class OltDeviceListenerTest extends OltTestHelpers {
     }
 
     @Test
+    public void testPortEventOwnership() {
+        // make sure that we ignore events for devices that are not local to this node
+
+        // make sure the device is recognized as an OLT and the port is not an NNI
+        doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
+        doReturn(false).when(oltDeviceListener.oltDeviceService).isNniPort(eq(testDevice), any());
+
+        // make sure we're not leaders of the device
+        doReturn(false).when(oltDeviceListener).isLocalLeader(any());
+
+        // this is a new port, should create an entry in the queue
+        Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
+                DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
+        DeviceEvent uniUpdateEnabledEvent =
+                new DeviceEvent(DeviceEvent.Type.PORT_UPDATED, testDevice, uniUpdateEnabled);
+        oltDeviceListener.event(uniUpdateEnabledEvent);
+
+        assert discoveredSubscribersQueue.isEmpty();
+    }
+
+    @Test
     public void testNniEvent() {
-        // make sure the device is recognized as an OLT and the port is recognized as an NNI
-        doReturn(true).when(oltDeviceListener.oltDevice).isOlt(testDevice);
-        doReturn(true).when(oltDeviceListener.oltDevice).isNniPort(eq(testDevice), any());
+        // make sure the device is recognized as an OLT and the port is recognized as an NNI,
+        // and we're local leaders
+        doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
+        doReturn(true).when(oltDeviceListener.oltDeviceService).isNniPort(eq(testDevice), any());
+        doReturn(true).when(oltDeviceListener).isLocalLeader(any());
 
         Port enabledNniPort = new OltPort(true, PortNumber.portNumber(1048576),
                 DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "nni-1").build());
@@ -104,15 +164,16 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         // - UNI port updated to disabled state
         // - UNI port removed (assumes it's disabled state)
 
-        // make sure the device is recognized as an OLT and the port is not an NNI
-        doReturn(true).when(oltDeviceListener.oltDevice).isOlt(testDevice);
-        doReturn(false).when(oltDeviceListener.oltDevice).isNniPort(eq(testDevice), any());
+        // make sure the device is recognized as an OLT, the port is not an NNI,
+        // and we're local masters
+        doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
+        doReturn(false).when(oltDeviceListener.oltDeviceService).isNniPort(eq(testDevice), any());
+        doReturn(true).when(oltDeviceListener).isLocalLeader(any());
 
         PortNumber uniPortNumber = PortNumber.portNumber(16);
         Port uniAddedDisabled = new OltPort(false, uniPortNumber,
                 DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
         DeviceEvent uniAddedDisabledEvent = new DeviceEvent(DeviceEvent.Type.PORT_ADDED, testDevice, uniAddedDisabled);
-
 
         // if the port does not have default EAPOL we should not generate an event
         oltDeviceListener.event(uniAddedDisabledEvent);

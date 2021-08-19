@@ -16,6 +16,9 @@
 package org.opencord.olt.impl;
 
 import org.onosproject.cfg.ComponentConfigService;
+import org.onosproject.cluster.ClusterService;
+import org.onosproject.cluster.LeadershipService;
+import org.onosproject.mastership.MastershipService;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
@@ -80,6 +83,15 @@ public class Olt implements OltService {
     protected ComponentConfigService cfgService;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected MastershipService mastershipService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected ClusterService clusterService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected LeadershipService leadershipService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile SadisService sadisService;
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
@@ -125,8 +137,9 @@ public class Olt implements OltService {
     @Activate
     protected void activate() {
         cfgService.registerProperties(getClass());
-        deviceListener = new OltDeviceListener(oltDeviceService, oltFlowService, oltMeterService,
-                deviceService, discoveredSubscribersQueue);
+        OltDeviceListener deviceListener = new OltDeviceListener(clusterService, mastershipService,
+                leadershipService, deviceService, oltDeviceService, oltFlowService,
+                oltMeterService, discoveredSubscribersQueue);
         deviceService.addListener(deviceListener);
         discoveredSubscriberExecutor.execute(this::processDiscoveredSubscribers);
         log.info("Started");
@@ -265,6 +278,5 @@ public class Olt implements OltService {
         }
         return olts;
     }
-
 
 }

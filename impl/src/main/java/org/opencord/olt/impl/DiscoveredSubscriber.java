@@ -16,7 +16,7 @@ public class DiscoveredSubscriber {
     public Enum<Status> status;
     public boolean provisionSubscriber;
 
-    DiscoveredSubscriber(Device device, Port port, Status status, boolean provisionSubscriber) {
+    public DiscoveredSubscriber(Device device, Port port, Status status, boolean provisionSubscriber) {
         this.device = device;
         this.port = port;
         this.status = status;
