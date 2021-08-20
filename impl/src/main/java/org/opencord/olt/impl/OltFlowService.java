@@ -361,6 +361,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     private void removeDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile)
             throws Exception {
+
         // NOTE that we are not checking for meters as they must have been created to install the flow in first place
         handleEapolFlow(sub, bandwidthProfile, oltBandwidthProfile,
                 FlowAction.REMOVE, VlanId.vlanId(EAPOL_DEFAULT_VLAN));

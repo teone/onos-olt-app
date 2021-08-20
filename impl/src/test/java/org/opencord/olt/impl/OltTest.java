@@ -30,21 +30,25 @@ import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
-import org.onosproject.net.device.DeviceServiceAdapter;
+import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.provider.ProviderId;
 import org.opencord.sadis.SadisService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.TimeUnit;
 
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.times;
 import static org.onlab.util.Tools.groupedThreads;
@@ -73,7 +77,7 @@ public class OltTest extends OltTestHelpers {
     public void setUp() {
         component = new Olt();
         component.cfgService = new ComponentConfigAdapter();
-        component.deviceService = new DeviceServiceAdapter();
+        component.deviceService = Mockito.mock(DeviceService.class);
         component.discoveredSubscribersQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
         component.discoveredSubscriberExecutor = Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                 "discovered-cp-%d", log));
@@ -94,6 +98,8 @@ public class OltTest extends OltTestHelpers {
 
     @Test
     public void testProcessDiscoveredSubscribersBasicPortSuccess() throws Exception {
+        doReturn(true).when(component.deviceService).isAvailable(any());
+        doReturn(sub.port).when(component.deviceService).getPort(any(), any());
 
         // adding the discovered subscriber to the queue
         component.discoveredSubscribersQueue.add(sub);
@@ -109,20 +115,25 @@ public class OltTest extends OltTestHelpers {
 
     @Test
     public void testProcessDiscoveredSubscribersBasicPortException() throws Exception {
+        doReturn(true).when(component.deviceService).isAvailable(any());
+        doReturn(sub.port).when(component.deviceService).getPort(any(), any());
         doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(), eq(DEFAULT_BP_ID_DEFAULT),
                 eq(DEFAULT_BP_ID_DEFAULT));
+        // replace the queue with a spy
+        BlockingQueue<DiscoveredSubscriber> spiedQueue = spy(component.discoveredSubscribersQueue);
+        component.discoveredSubscribersQueue = spiedQueue;
 
         // adding the discovered subscriber to the queue
         component.discoveredSubscribersQueue.add(sub);
+        TimeUnit.MILLISECONDS.sleep(100);
 
         // check that we're calling the correct method,
         // since the subscriber is not removed from the queue we're calling the method multiple times
-        TimeUnit.SECONDS.sleep(1);
         verify(component.oltFlowService, atLeastOnce()).handleBasicPortFlows(eq(sub), eq(DEFAULT_BP_ID_DEFAULT),
                 eq(DEFAULT_BP_ID_DEFAULT));
 
-        // check if the method throws an exception we're not removing the subscriber from the queue
-        assert component.discoveredSubscribersQueue.size() == 1;
+        // check if the method throws an exception we are adding the subscriber back in the queue
+        verify(component.discoveredSubscribersQueue, atLeast(2)).add(sub);
     }
 
 }
