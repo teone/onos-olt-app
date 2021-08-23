@@ -381,6 +381,8 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void addSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
+        log.info("Provisioning of subscriber on {}/{} ({}) started",
+                sub.device.id(), sub.port.number(), sub.portName());
         if (enableEapol) {
             if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
                 // remove EAPOL flow and throw exception so that we'll retry later
@@ -415,7 +417,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         handleSubscriberEapolFlows(sub, FlowAction.ADD, si);
 
-        log.error("Provisioning of subscriber on {}/{} ({}) completed",
+        log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
     }
 
@@ -580,6 +582,9 @@ public class OltFlowService implements OltFlowServiceInterface {
                         ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
                         OltFlowsStatus status = action.equals(FlowAction.ADD) ?
                                 OltFlowsStatus.ADDED : OltFlowsStatus.REMOVED;
+                        // NOTE it may be worthy to look into updating the cpStatusMap
+                        // based on flow events instead of flowObjective results
+                        // downside: may be much slower
                         updateConnectPointStatus(cp, status, null, null);
                     }
 
