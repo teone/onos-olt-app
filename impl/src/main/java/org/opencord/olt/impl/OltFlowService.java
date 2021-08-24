@@ -145,6 +145,16 @@ public class OltFlowService implements OltFlowServiceInterface {
     private final Lock cpStatusReadLock = cpStatusLock.readLock();
 
     /**
+     * This map contains the subscriber that have been provisioned by the operator.
+     * They may or may not have flows, depending on the port status.
+     * The map is used to define whether flows need to be provisioned when a port comes up.
+     */
+    protected HashMap<ConnectPoint, Boolean> provisionedSubscribers;
+    private final ReentrantReadWriteLock provisionedSubscribersLock = new ReentrantReadWriteLock();
+    private final Lock provisionedSubscribersWriteLock = provisionedSubscribersLock.writeLock();
+    private final Lock provisionedSubscribersReadLock = provisionedSubscribersLock.readLock();
+
+    /**
      * Create DHCP trap flow on NNI port(s).
      */
     protected boolean enableDhcpOnNni = ENABLE_DHCP_ON_NNI_DEFAULT;
@@ -199,6 +209,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         // TODO this should be a distributed map
         // NOTE this maps is lost on app/node restart, can we rebuild it?
         cpStatus = new HashMap<>();
+        provisionedSubscribers = new HashMap<>();
 
         log.info("Activated");
     }
@@ -267,6 +278,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     @Override
     public ImmutableMap<ConnectPoint, Set<UniTagInformation>> getProgrammedSusbcribers() {
+
         Map<ConnectPoint, Set<UniTagInformation>> subscribers =
                 new HashMap<>();
         try {
@@ -381,8 +393,10 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void addSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
-        log.info("Provisioning of subscriber on {}/{} ({}) started",
-                sub.device.id(), sub.port.number(), sub.portName());
+        if (log.isTraceEnabled()) {
+            log.trace("Provisioning of subscriber on {}/{} ({}) started",
+                    sub.device.id(), sub.port.number(), sub.portName());
+        }
         if (enableEapol) {
             if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
                 // remove EAPOL flow and throw exception so that we'll retry later
@@ -417,11 +431,19 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         handleSubscriberEapolFlows(sub, FlowAction.ADD, si);
 
+        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+
+
         log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
     }
 
     private void removeSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
+
+        if (log.isTraceEnabled()) {
+            log.info("Removal of subscriber on {}/{} ({}) started",
+                    sub.device.id(), sub.port.number(), sub.portName());
+        }
         SubscriberAndDeviceInformation si = subsService.get(sub.portName());
         if (si == null) {
             log.error("Subscriber information not found in sadis for port {}/{} ({}) during subscriber removal",
@@ -443,11 +465,20 @@ public class OltFlowService implements OltFlowServiceInterface {
                 handleSubscriberEapolFlows(sub, FlowAction.REMOVE, si);
 
                 // and add the default one back
-                handleEapolFlow(sub, defaultBandwithProfile, defaultBandwithProfile,
-                        FlowAction.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
+                if (sub.port.isEnabled()) {
+                    // NOTE we remove the subscriber when the port goes down
+                    // but in that case we don't need to add default eapol
+                    handleEapolFlow(sub, defaultBandwithProfile, defaultBandwithProfile,
+                            FlowAction.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
+                }
             }
             handleSubscriberDataFlows(sub.device, sub.port, FlowAction.REMOVE, si);
         }
+
+        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+
+        log.info("Removal of subscriber on {}/{} ({}) completed",
+                sub.device.id(), sub.port.number(), sub.portName());
     }
 
     @Override
@@ -459,7 +490,8 @@ public class OltFlowService implements OltFlowServiceInterface {
             if (status == null) {
                 return false;
             }
-            return status.eapolStatus == OltFlowsStatus.ADDED || status.eapolStatus == OltFlowsStatus.PENDING_ADD;
+            return status.defaultEapolStatus == OltFlowsStatus.ADDED ||
+                    status.defaultEapolStatus == OltFlowsStatus.PENDING_ADD;
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -508,6 +540,38 @@ public class OltFlowService implements OltFlowServiceInterface {
             cpStatus.entrySet().removeIf(i -> i.getKey().deviceId().equals(deviceId));
         } finally {
             cpStatusWriteLock.unlock();
+        }
+
+        // removing subscribers from the provisioned map
+        try {
+            provisionedSubscribersWriteLock.lock();
+            provisionedSubscribers.entrySet().removeIf(i -> i.getKey().deviceId().equals(deviceId));
+        } finally {
+            provisionedSubscribersWriteLock.unlock();
+        }
+    }
+
+    @Override
+    public Boolean isSubscriberProvisioned(ConnectPoint cp) {
+        try {
+            provisionedSubscribersReadLock.lock();
+            Boolean provisioned = provisionedSubscribers.get(cp);
+            if (provisioned == null || !provisioned) {
+                return false;
+            }
+        } finally {
+            provisionedSubscribersReadLock.unlock();
+        }
+        return true;
+    }
+
+    @Override
+    public void updateProvisionedSubscriberStatus(ConnectPoint cp, Boolean status) {
+        try {
+            provisionedSubscribersWriteLock.lock();
+            provisionedSubscribers.put(cp, status);
+        } finally {
+            provisionedSubscribersWriteLock.unlock();
         }
     }
 
@@ -585,14 +649,20 @@ public class OltFlowService implements OltFlowServiceInterface {
                         // NOTE it may be worthy to look into updating the cpStatusMap
                         // based on flow events instead of flowObjective results
                         // downside: may be much slower
-                        updateConnectPointStatus(cp, status, null, null);
+                        if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
+                            // NOTE we only care about EAPOL status with the default VLAN,
+                            // a tagged EAPOL flow falls in the subscriber flows category
+                            updateConnectPointStatus(cp, status, null, null);
+                        }
                     }
 
                     @Override
                     public void onError(Objective objective, ObjectiveError error) {
                         log.error("Cannot {} eapol flow: {}", action, error);
                         ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
-                        updateConnectPointStatus(cp, OltFlowsStatus.ERROR, null, null);
+                        if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
+                            updateConnectPointStatus(cp, OltFlowsStatus.ERROR, null, null);
+                        }
                     }
                 });
 
@@ -1202,7 +1272,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                 );
             } else {
                 if (eapolStatus != null) {
-                    status.eapolStatus = eapolStatus;
+                    status.defaultEapolStatus = eapolStatus;
                 }
                 if (subscriberFlowsStatus != null) {
                     status.subscriberFlowsStatus = subscriberFlowsStatus;
@@ -1229,15 +1299,15 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     public static class OltPortStatus {
         // TODO consider adding a lastUpdated field, it may help with debugging
-        public OltFlowsStatus eapolStatus;
+        public OltFlowsStatus defaultEapolStatus;
         public OltFlowsStatus subscriberFlowsStatus;
         // NOTE we need to keep track of the DHCP status as that is installed before the other flows
         // if macLearning is enabled (DHCP is needed to learn the MacAddress from the host)
         public OltFlowsStatus dhcpStatus;
 
-        public OltPortStatus(OltFlowsStatus eapolStatus,
+        public OltPortStatus(OltFlowsStatus defaultEapolStatus,
                              OltFlowsStatus subscriberFlowsStatus, OltFlowsStatus dhcpStatus) {
-            this.eapolStatus = eapolStatus;
+            this.defaultEapolStatus = defaultEapolStatus;
             this.subscriberFlowsStatus = subscriberFlowsStatus;
             this.dhcpStatus = dhcpStatus;
         }

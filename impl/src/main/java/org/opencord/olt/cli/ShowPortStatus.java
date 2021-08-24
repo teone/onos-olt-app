@@ -83,7 +83,7 @@ public class ShowPortStatus extends AbstractShellCommand {
     private void display(DeviceId deviceId, Map<PortNumber, OltFlowService.OltPortStatus> portStatus) {
         print("deviceId=%s, managedPorts=%d", deviceId, portStatus.size());
         portStatus.forEach((port, status) ->
-                print("\tport=%s eapolStatus=%s subscriberFlowsStatus=%s dhcpStatus=%s",
-                        port, status.eapolStatus, status.subscriberFlowsStatus, status.dhcpStatus));
+                print("\tport=%s defaultEapolStatus=%s subscriberFlowsStatus=%s dhcpStatus=%s",
+                        port, status.defaultEapolStatus, status.subscriberFlowsStatus, status.dhcpStatus));
     }
 }

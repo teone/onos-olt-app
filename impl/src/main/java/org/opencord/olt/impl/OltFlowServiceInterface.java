@@ -28,4 +28,7 @@ public interface OltFlowServiceInterface {
 
     Map<ConnectPoint, OltFlowService.OltPortStatus> getConnectPointStatus();
     ImmutableMap<ConnectPoint, Set<UniTagInformation>> getProgrammedSusbcribers();
+
+    Boolean isSubscriberProvisioned(ConnectPoint cp);
+    void updateProvisionedSubscriberStatus(ConnectPoint cp, Boolean status);
 }

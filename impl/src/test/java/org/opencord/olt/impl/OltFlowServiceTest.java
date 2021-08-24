@@ -117,7 +117,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         //check that we only update the provided value
         oltFlowService.updateConnectPointStatus(cp1, ADDED, null, null);
         OltFlowService.OltPortStatus updated = oltFlowService.cpStatus.get(cp1);
-        Assert.assertEquals(ADDED, updated.eapolStatus);
+        Assert.assertEquals(ADDED, updated.defaultEapolStatus);
         Assert.assertEquals(NONE, updated.subscriberFlowsStatus);
         Assert.assertEquals(NONE, updated.dhcpStatus);
 
@@ -128,7 +128,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         // check that if we create a new entry with null values they're converted to NONE
         oltFlowService.updateConnectPointStatus(cp3, null, null, null);
         updated = oltFlowService.cpStatus.get(cp3);
-        Assert.assertEquals(NONE, updated.eapolStatus);
+        Assert.assertEquals(NONE, updated.defaultEapolStatus);
         Assert.assertEquals(NONE, updated.subscriberFlowsStatus);
         Assert.assertEquals(NONE, updated.dhcpStatus);
     }

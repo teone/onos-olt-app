@@ -140,6 +140,7 @@ public class Olt implements OltService {
         flowsExecutor = Executors.newFixedThreadPool(flowsTreads,
                 groupedThreads("onos/olt-service",
                         "flows-installer-%d"));
+
         log.info("Started");
     }
 
@@ -177,8 +178,10 @@ public class Olt implements OltService {
                     // the queue is empty
                     continue;
                 }
-                log.debug("Processing subscriber on port {}/{} with status {}",
-                        sub.device.id(), sub.port.number(), sub.status);
+                if (log.isTraceEnabled()) {
+                    log.debug("Processing subscriber on port {}/{} with status {}",
+                            sub.device.id(), sub.port.number(), sub.status);
+                }
 
                 if (sub.provisionSubscriber) {
                     // this is a provision subscriber call
@@ -231,8 +234,12 @@ public class Olt implements OltService {
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                 DiscoveredSubscriber.Status.ADDED, true);
 
-        // TODO check if subscriber has already been provisioned
+        if (oltFlowService.isSubscriberProvisioned(cp)) {
+            log.error("Subscriber on {} is already provisioned", cp);
+            return false;
+        }
 
+        oltFlowService.updateProvisionedSubscriberStatus(cp, true);
         if (!discoveredSubscribersQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for provisioning",
                     sub.device.id(), sub.port.number(), sub.status);
@@ -250,8 +257,12 @@ public class Olt implements OltService {
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                 DiscoveredSubscriber.Status.REMOVED, true);
 
-        // TODO check if subscriber is provisioned
+        if (!oltFlowService.isSubscriberProvisioned(cp)) {
+            log.error("Subscriber on {} is not provisioned", cp);
+            return false;
+        }
 
+        oltFlowService.updateProvisionedSubscriberStatus(cp, false);
         if (!discoveredSubscribersQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for removal",
                     sub.device.id(), sub.port.number(), sub.status);

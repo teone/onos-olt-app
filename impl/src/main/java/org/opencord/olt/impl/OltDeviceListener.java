@@ -4,6 +4,7 @@ import org.onosproject.cluster.ClusterService;
 import org.onosproject.cluster.LeadershipService;
 import org.onosproject.cluster.NodeId;
 import org.onosproject.mastership.MastershipService;
+import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
@@ -125,9 +126,11 @@ public class OltDeviceListener implements DeviceListener {
                 }
                 oltFlowService.handleNniFlows(device, port, action);
             } else {
-
+                // NOTE if the subscriber was previously provisioned, then provision it again
+                ConnectPoint cp = new ConnectPoint(device.id(), port.number());
+                Boolean provisionSubscriber = oltFlowService.isSubscriberProvisioned(cp);
                 DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
-                        DiscoveredSubscriber.Status.ADDED, false);
+                        DiscoveredSubscriber.Status.ADDED, provisionSubscriber);
                 if (!discoveredSubscribersQueue.contains(sub)) {
                     log.info("Adding subscriber to queue: {}/{} with status {}",
                             sub.device.id(), sub.port.number(), sub.status);
