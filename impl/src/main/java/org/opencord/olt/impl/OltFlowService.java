@@ -358,53 +358,57 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
-    public void handleBasicPortFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile)
-            throws Exception {
+    public boolean handleBasicPortFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile) {
 
         // we only need to something if EAPOL is enabled
         if (!enableEapol) {
-            return;
+            return true;
         }
 
         if (sub.status == DiscoveredSubscriber.Status.ADDED) {
-            addDefaultFlows(sub, bandwidthProfile, oltBandwidthProfile);
+            return addDefaultFlows(sub, bandwidthProfile, oltBandwidthProfile);
         } else if (sub.status == DiscoveredSubscriber.Status.REMOVED) {
-            removeDefaultFlows(sub, bandwidthProfile, oltBandwidthProfile);
+            return removeDefaultFlows(sub, bandwidthProfile, oltBandwidthProfile);
+        } else {
+            log.error("don't know how to handle {}", sub);
+            return false;
         }
 
     }
 
-    private void addDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile)
-            throws Exception {
-        oltMeterService.createMeter(sub.device.id(), bandwidthProfile);
-        handleEapolFlow(sub, bandwidthProfile, oltBandwidthProfile, FlowAction.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
+    private boolean addDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile) {
+        if (!oltMeterService.createMeter(sub.device.id(), bandwidthProfile)) {
+            if (log.isTraceEnabled()) {
+                log.trace("waiting on meter");
+            }
+            return false;
+        }
+        return handleEapolFlow(sub, bandwidthProfile,
+                oltBandwidthProfile, FlowAction.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
 
-        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
-        updateConnectPointStatus(cp, OltFlowsStatus.PENDING_ADD, OltFlowsStatus.NONE, OltFlowsStatus.NONE);
     }
 
-    private void removeDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile)
-            throws Exception {
-
+    private boolean removeDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile) {
         // NOTE that we are not checking for meters as they must have been created to install the flow in first place
-        handleEapolFlow(sub, bandwidthProfile, oltBandwidthProfile,
+        return handleEapolFlow(sub, bandwidthProfile, oltBandwidthProfile,
                 FlowAction.REMOVE, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
-        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
-        updateConnectPointStatus(cp, OltFlowsStatus.PENDING_REMOVE, null, null);
     }
 
     @Override
-    public void handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
+    public boolean handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) {
         // NOTE that we are taking defaultBandwithProfile as a parameter as that can be configured in the Olt component
 
         if (sub.status == DiscoveredSubscriber.Status.ADDED) {
-            addSubscriberFlows(sub, defaultBandwithProfile);
+            return addSubscriberFlows(sub, defaultBandwithProfile);
         } else if (sub.status == DiscoveredSubscriber.Status.REMOVED) {
-            removeSubscriberFlows(sub, defaultBandwithProfile);
+            return removeSubscriberFlows(sub, defaultBandwithProfile);
+        } else {
+            log.error("don't know how to handle {}", sub);
+            return false;
         }
     }
 
-    private void addSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
+    private boolean addSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) {
         if (log.isTraceEnabled()) {
             log.trace("Provisioning of subscriber on {}/{} ({}) started",
                     sub.device.id(), sub.port.number(), sub.portName());
@@ -413,8 +417,9 @@ public class OltFlowService implements OltFlowServiceInterface {
             if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
                 // remove EAPOL flow and throw exception so that we'll retry later
                 removeDefaultFlows(sub, defaultBandwithProfile, defaultBandwithProfile);
-                throw new Exception(String.format("Awaiting for default flows removal for %s/%s (%s)",
-                        sub.device.id(), sub.port.number(), sub.portName()));
+                log.debug("Awaiting for default flows removal for {}/{} ({})",
+                        sub.device.id(), sub.port.number(), sub.portName());
+                return false;
             }
         }
 
@@ -422,20 +427,23 @@ public class OltFlowService implements OltFlowServiceInterface {
         if (si == null) {
             log.error("Subscriber information not found in sadis for port {}/{} ({})",
                     sub.device.id(), sub.port.number(), sub.portName());
-            // NOTE that we are not throwing an exception so that the subscriber is removed from the queue
+            // NOTE that we are returning true so that the subscriber is removed from the queue
             // and we can move on provisioning others
-            return;
+            return true;
         }
 
         // NOTE createMeters will throw if the meters are not ready
-        oltMeterService.createMeters(sub.device.id(), si);
+        if (!oltMeterService.createMeters(sub.device.id(), si)) {
+            return false;
+        }
 
         // NOTE we need to add the DHCP flow regardless so that the host can be discovered and the MacAddress added
         handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowAction.ADD, si);
 
         if (isMacLearningEnabled(si) && !isMacAddressAvailable(sub.device.id(), sub.port, si)) {
-            throw new Exception(String.format("Awaiting for macAddress on %s/%s (%s)",
-                    sub.device.id(), sub.port.number(), sub.portName()));
+            log.debug("Awaiting for macAddress on {}/{} ({})",
+                    sub.device.id(), sub.port.number(), sub.portName());
+            return false;
         }
 
         // NOTE do we need to do anything for IGMP?
@@ -448,21 +456,22 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
+        return true;
     }
 
-    private void removeSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) throws Exception {
+    private boolean removeSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) {
 
         if (log.isTraceEnabled()) {
-            log.info("Removal of subscriber on {}/{} ({}) started",
+            log.trace("Removal of subscriber on {}/{} ({}) started",
                     sub.device.id(), sub.port.number(), sub.portName());
         }
         SubscriberAndDeviceInformation si = subsService.get(sub.portName());
         if (si == null) {
             log.error("Subscriber information not found in sadis for port {}/{} ({}) during subscriber removal",
                     sub.device.id(), sub.port.number(), sub.portName());
-            // NOTE that we are not throwing an exception so that the subscriber is removed from the queue
+            // NOTE that we are returning true so that the subscriber is removed from the queue
             // and we can move on provisioning others
-            return;
+            return true;
         }
 
         // NOTE why don't we simply remove all the flows on this port?
@@ -491,6 +500,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         log.info("Removal of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
+        return true;
     }
 
     @Override
@@ -587,11 +597,16 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
     }
 
-    // NOTE this method can most likely be generalized to:
-    // - handle EAPOL flows with customer VLANs
-    private void handleEapolFlow(DiscoveredSubscriber sub, String bandwidthProfile,
-                                 String oltBandwidthProfile, FlowAction action, VlanId vlanId)
-            throws Exception {
+    private boolean handleEapolFlow(DiscoveredSubscriber sub, String bandwidthProfile,
+                                 String oltBandwidthProfile, FlowAction action, VlanId vlanId) {
+
+        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+
+        if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
+            OltFlowsStatus status = action == FlowAction.ADD ?
+                    OltFlowsStatus.PENDING_ADD : OltFlowsStatus.PENDING_REMOVE;
+            updateConnectPointStatus(cp, status, OltFlowsStatus.NONE, OltFlowsStatus.NONE);
+        }
 
         DefaultFilteringObjective.Builder filterBuilder = DefaultFilteringObjective.builder();
         TrafficTreatment.Builder treatmentBuilder = DefaultTrafficTreatment.builder();
@@ -602,14 +617,16 @@ public class OltFlowService implements OltFlowServiceInterface {
         // in the delete case the meter should still be there as we remove
         // the meters only if no flows are pointing to them
         if (meterId == null) {
-            throw new Exception(String.format("MeterId is null for BandwidthProfile %s on device %s",
-                    bandwidthProfile, sub.device.id()));
+            log.debug("MeterId is null for BandwidthProfile {} on device {}",
+                    bandwidthProfile, sub.device.id());
+            return false;
         }
 
         MeterId oltMeterId = oltMeterService.getMeterIdForBandwidthProfile(sub.device.id(), oltBandwidthProfile);
         if (oltMeterId == null) {
-            throw new Exception(String.format("MeterId is null for OltBandwidthProfile %s on device %s",
-                    oltBandwidthProfile, sub.device.id()));
+            log.debug("MeterId is null for OltBandwidthProfile {} on device {}",
+                    oltBandwidthProfile, sub.device.id());
+            return false;
         }
 
         log.info("Preforming {} on EAPOL flow for {}/{} with vlanId {} and meterId {}",
@@ -622,7 +639,8 @@ public class OltFlowService implements OltFlowServiceInterface {
         } else if (action == FlowAction.REMOVE) {
             eapolAction = filterBuilder.deny();
         } else {
-            throw new Exception(String.format("Operation %s not supported", action));
+            log.error("Operation {} not supported", action);
+            return false;
         }
 
         FilteringObjective.Builder baseEapol = eapolAction
@@ -655,7 +673,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                                 action, sub.device.id(), sub.port.number(), objective);
 
                         // update the flow status in cpStatus map
-                        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+
                         OltFlowsStatus status = action.equals(FlowAction.ADD) ?
                                 OltFlowsStatus.ADDED : OltFlowsStatus.REMOVED;
                         // NOTE it may be worthy to look into updating the cpStatusMap
@@ -671,16 +689,17 @@ public class OltFlowService implements OltFlowServiceInterface {
                     @Override
                     public void onError(Objective objective, ObjectiveError error) {
                         log.error("Cannot {} eapol flow: {}", action, error);
-                        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+
                         if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
                             updateConnectPointStatus(cp, OltFlowsStatus.ERROR, null, null);
                         }
                     }
                 });
 
-        log.info("Created EAPOL filter to {} for {}/{}: {}", action, sub.device.id(), sub.port.number(), eapol);
-
         flowObjectiveService.filter(sub.device.id(), eapolObjective);
+
+        log.info("Created EAPOL filter to {} for {}/{}: {}", action, sub.device.id(), sub.port.number(), eapol);
+        return true;
     }
 
     private void handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowAction action,

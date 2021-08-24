@@ -203,48 +203,15 @@ public class OltFlowServiceTest extends OltTestHelpers {
         verify(oltFlowService.subsService, never()).get(any());
     }
 
-    @Test(expected = Exception.class)
+    @Test
     public void testHandleBasicPortFlowsWithEapolNoMeter() throws Exception {
-        // if we need eapol, make sure there is meter for it
-        // if there is no meter create one and return
+        // wether the meter is pending or not is up to the createMeter method to handle
+        // we just don't proceed with the subscriber till it's readz
+        doReturn(false).when(oltFlowService.oltMeterService)
+                .createMeter(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
+        boolean res = oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
 
-        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
-
-        // we check for an existing meter (not present)
-        verify(oltFlowService.oltMeterService, times(1))
-                .hasMeterByBandwidthProfile(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
-
-        // we check for a pending meter (not present)
-        verify(oltFlowService.oltMeterService, times(1))
-                .hasPendingMeterByBandwidthProfile(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
-
-        // we create the meter
-        verify(oltFlowService.oltMeterService, times(1))
-                .createMeterForBp(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
-
-        // we do not create flows
-        verify(oltFlowService.flowObjectiveService, never())
-                .filter(eq(addedSub.device.id()), any());
-    }
-
-    @Test(expected = Exception.class)
-    public void testHandleBasicPortFlowsWithEapolPendingMeter() throws Exception {
-        // we already have a pending meter, so we just wait for it to be installed
-        doReturn(true).when(oltFlowService.oltMeterService)
-                .hasPendingMeterByBandwidthProfile(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
-        oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
-
-        // we check for an existing meter (not present)
-        verify(oltFlowService.oltMeterService, times(1))
-                .hasMeterByBandwidthProfile(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
-
-        // we check for a pending meter (present)
-        verify(oltFlowService.oltMeterService, times(1))
-                .hasPendingMeterByBandwidthProfile(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
-
-        // we do not create the meter (it's already PENDING_ADD)
-        verify(oltFlowService.oltMeterService, never())
-                .createMeterForBp(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
+        Assert.assertFalse(res);
 
         // we do not create flows
         verify(oltFlowService.flowObjectiveService, never())
@@ -256,6 +223,8 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // this is the happy case, we have the meter so we check that the default EAPOL flow
         // is installed
+        doReturn(true).when(oltFlowService.oltMeterService)
+                .createMeter(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
         doReturn(true).when(oltFlowService.oltMeterService)
                 .hasMeterByBandwidthProfile(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
         doReturn(MeterId.meterId(1)).when(oltFlowService.oltMeterService)

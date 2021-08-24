@@ -15,20 +15,30 @@ import org.opencord.sadis.SadisService;
 import java.util.LinkedList;
 import java.util.List;
 
+import static org.mockito.Matchers.any;
+import static org.mockito.Mockito.doReturn;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
+import static org.mockito.Mockito.verify;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
 
 
 public class OltMeterServiceTest extends OltTestHelpers {
     OltMeterService oltMeterService;
+    OltMeterService component;
+
     @Before
     public void setUp() {
-        oltMeterService = new OltMeterService();
-        oltMeterService.cfgService = new ComponentConfigAdapter();
-        oltMeterService.coreService = new CoreServiceAdapter();
-        oltMeterService.storageService = new StorageServiceAdapter();
-        oltMeterService.sadisService = Mockito.mock(SadisService.class);
-        oltMeterService.meterService = new MeterServiceAdapter();
-        oltMeterService.activate();
+        component = new OltMeterService();
+        component.cfgService = new ComponentConfigAdapter();
+        component.coreService = new CoreServiceAdapter();
+        component.storageService = new StorageServiceAdapter();
+        component.sadisService = Mockito.mock(SadisService.class);
+        component.meterService = new MeterServiceAdapter();
+        component.activate();
+
+        // we're spying on the component under test so that we can mock the return of iternal methods
+        oltMeterService = Mockito.spy(component);
     }
 
     @Test
@@ -68,5 +78,29 @@ public class OltMeterServiceTest extends OltTestHelpers {
         Assert.assertNull(oltMeterService.getMeterIdForBandwidthProfile(deviceId, "pending"));
         Assert.assertEquals(MeterId.meterId(2),
                 oltMeterService.getMeterIdForBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT));
+    }
+
+    @Test
+    public void testCreateMeter() {
+
+        DeviceId deviceId = DeviceId.deviceId("foo");
+        String bp = "Default";
+
+        // if we already have a meter do nothing and return true
+        doReturn(true).when(oltMeterService).hasMeterByBandwidthProfile(deviceId, bp);
+        Assert.assertTrue(oltMeterService.createMeter(deviceId, bp));
+        verify(oltMeterService, never()).createMeterForBp(any(), any());
+
+        // if we have a pending meter, do nothing and return false
+        doReturn(false).when(oltMeterService).hasMeterByBandwidthProfile(deviceId, bp);
+        doReturn(true).when(oltMeterService).hasPendingMeterByBandwidthProfile(deviceId, bp);
+        Assert.assertFalse(oltMeterService.createMeter(deviceId, bp));
+        verify(oltMeterService, never()).createMeterForBp(any(), any());
+
+        // if the meter is not present at all, create it and return false
+        doReturn(false).when(oltMeterService).hasMeterByBandwidthProfile(deviceId, bp);
+        doReturn(false).when(oltMeterService).hasPendingMeterByBandwidthProfile(deviceId, bp);
+        Assert.assertFalse(oltMeterService.createMeter(deviceId, bp));
+        verify(oltMeterService, times(1)).createMeterForBp(deviceId, bp);
     }
 }

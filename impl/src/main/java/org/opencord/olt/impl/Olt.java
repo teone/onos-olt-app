@@ -186,12 +186,10 @@ public class Olt implements OltService {
                 if (sub.provisionSubscriber) {
                     // this is a provision subscriber call
                     flowsExecutor.execute(() -> {
-                        try {
-                            oltFlowService.handleSubscriberFlows(sub, defaultBpId);
-                        } catch (Exception e) {
+                        if (!oltFlowService.handleSubscriberFlows(sub, defaultBpId)) {
                             if (log.isTraceEnabled()) {
-                                log.trace("Provisioning of subscriber on {}/{} ({}) postponed: {}",
-                                        sub.device.id(), sub.port.number(), sub.portName(), e.getMessage());
+                                log.trace("Provisioning of subscriber on {}/{} ({}) postponed",
+                                        sub.device.id(), sub.port.number(), sub.portName());
                             }
                             discoveredSubscribersQueue.add(sub);
                         }
@@ -211,12 +209,10 @@ public class Olt implements OltService {
                     }
 
                     flowsExecutor.execute(() -> {
-                        try {
-                            oltFlowService.handleBasicPortFlows(sub, defaultBpId, defaultBpId);
-                        } catch (Exception e) {
+                        if (!oltFlowService.handleBasicPortFlows(sub, defaultBpId, defaultBpId)) {
                             if (log.isTraceEnabled()) {
-                                log.trace("Processing of port {}/{} postponed: {}",
-                                        sub.device.id(), sub.port.number(), e.getMessage());
+                                log.trace("Processing of port {}/{} postponed",
+                                        sub.device.id(), sub.port.number());
                             }
                             discoveredSubscribersQueue.add(sub);
                         }

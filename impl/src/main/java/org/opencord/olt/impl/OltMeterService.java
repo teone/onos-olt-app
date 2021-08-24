@@ -157,7 +157,7 @@ public class OltMeterService implements OltMeterServiceInterface {
     }
 
     @Override
-    public void createMeter(DeviceId deviceId, String bandwidthProfile) throws Exception {
+    public boolean createMeter(DeviceId deviceId, String bandwidthProfile) {
         if (!hasMeterByBandwidthProfile(deviceId, bandwidthProfile)) {
             // NOTE this is at trace level as it's constantly called by the queue processor
             if (log.isTraceEnabled()) {
@@ -167,13 +167,18 @@ public class OltMeterService implements OltMeterServiceInterface {
             if (!hasPendingMeterByBandwidthProfile(deviceId, bandwidthProfile)) {
                 createMeterForBp(deviceId, bandwidthProfile);
             }
-            throw new Exception(String.format("Meter is not yet available for %s on device %s",
-                    bandwidthProfile, deviceId));
+            if (log.isTraceEnabled()) {
+                log.trace("Meter is not yet available for {} on device {}",
+                        bandwidthProfile, deviceId);
+            }
+            return false;
         }
+        log.info("Meter found for {} on device {}", bandwidthProfile, deviceId);
+        return true;
     }
 
     @Override
-    public void createMeters(DeviceId deviceId, SubscriberAndDeviceInformation si) throws Exception {
+    public boolean createMeters(DeviceId deviceId, SubscriberAndDeviceInformation si) {
         // Each UniTagInformation has up to 4 meters,
         // check and/or create all of them
         AtomicBoolean waitingOnMeter = new AtomicBoolean();
@@ -186,36 +191,32 @@ public class OltMeterService implements OltMeterServiceInterface {
             String dsBp = uniTagInfo.getDownstreamBandwidthProfile();
             String oltUBp = uniTagInfo.getDownstreamOltBandwidthProfile();
             String oltDsBp = uniTagInfo.getUpstreamOltBandwidthProfile();
-            try {
-                createMeter(deviceId, usBp);
-            } catch (Exception e) {
+            if (!createMeter(deviceId, usBp)) {
                 pendingMeters.get(serviceName).add(usBp);
                 waitingOnMeter.set(true);
             }
-            try {
-                createMeter(deviceId, dsBp);
-            } catch (Exception e) {
+            if (!createMeter(deviceId, dsBp)) {
                 pendingMeters.get(serviceName).add(usBp);
                 waitingOnMeter.set(true);
             }
-            try {
-                createMeter(deviceId, oltUBp);
-            } catch (Exception e) {
+            if (!createMeter(deviceId, oltUBp)) {
                 pendingMeters.get(serviceName).add(usBp);
                 waitingOnMeter.set(true);
             }
-            try {
-                createMeter(deviceId, oltDsBp);
-            } catch (Exception e) {
+            if (!createMeter(deviceId, oltDsBp)) {
                 pendingMeters.get(serviceName).add(usBp);
                 waitingOnMeter.set(true);
             }
         });
         if (waitingOnMeter.get()) {
-            throw new Exception(String.format("Meters %s on device %s are not " +
-                            "installed yet (requested by subscriber %s)",
-                    pendingMeters, deviceId, si.id()));
+            if (log.isTraceEnabled()) {
+                log.trace("Meters {} on device {} are not " +
+                                "installed yet (requested by subscriber {})",
+                        pendingMeters, deviceId, si.id());
+            }
+            return false;
         }
+        return true;
     }
 
     /**
@@ -293,13 +294,14 @@ public class OltMeterService implements OltMeterServiceInterface {
      * @param bpId     the BandwidthProfile ID
      * @throws Exception if the meter can't be created
      */
-    public void createMeterForBp(DeviceId deviceId, String bpId) throws Exception {
+    public void createMeterForBp(DeviceId deviceId, String bpId) {
         BandwidthProfileInformation bpInfo = getBandwidthProfileInformation(bpId);
         if (bpInfo == null) {
-            throw new Exception(String.format("BandwidthProfile %s information not found in sadis", bpId));
+            log.error("BandwidthProfile {} information not found in sadis", bpId);
+            return;
         }
 
-        log.info("Creating meter for {} on device {}", bpInfo, deviceId);
+        log.debug("Creating meter for {} on device {}", bpInfo, deviceId);
 
         List<Band> meterBands = createMeterBands(bpInfo);
 
@@ -358,7 +360,7 @@ public class OltMeterService implements OltMeterServiceInterface {
 
             // enqueue the request
             pendingMeters.add(request);
-            log.info("Added meter for {} to queue", bpId);
+            log.debug("Added meter for {} to queue", bpId);
 
             // once the request is enqueued wait for it to complete
             // so that we can store the meterId
@@ -474,7 +476,7 @@ public class OltMeterService implements OltMeterServiceInterface {
         while (true) {
             if (!pendingMeters.isEmpty()) {
                 OltMeterRequest request = pendingMeters.peek();
-                log.info("Processing meter for bandwidth profile {} on device {}",
+                log.debug("Processing meter for bandwidth profile {} on device {}",
                         request.deviceId, request.bandwidthProfile);
                 Meter meter = meterService.submit(request.meterRequest);
 
@@ -497,20 +499,18 @@ public class OltMeterService implements OltMeterServiceInterface {
     }
 
     private class InternalMeterListener implements MeterListener {
-
         @Override
         public void event(MeterEvent meterEvent) {
             pendingRemovalMetersExecutor.execute(() -> {
-
                 log.debug("Received meter event {}", meterEvent);
                 if (meterEvent.type().equals(MeterEvent.Type.METER_REFERENCE_COUNT_ZERO)) {
                     // NOTE looks like we're not receiving this event
                     Meter meter = meterEvent.subject();
                     if (appId.equals(meter.appId())) {
+                        // only delete the meters if the app is configured to do so
                         if (deleteMeters) {
                             log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
-                            // only delete the meters if the app is configured to do so
-                             deleteMeter(meter.deviceId(), meter.id());
+                            deleteMeter(meter.deviceId(), meter.id());
                         }
                     }
                 }

@@ -9,21 +9,21 @@ import java.util.Map;
 
 public interface OltMeterServiceInterface {
     /**
-     * This method will check for a meter, if not present it will create it and throw an Exception.
+     * This method will check for a meter, if not present it will create it and return false.
      * @param deviceId DeviceId
      * @param bandwidthProfile Bandwidth Profile Id
-     * @throws Exception Throws an exception if the meter needs to be created
+     * @return boolean
      */
-    void createMeter(DeviceId deviceId, String bandwidthProfile) throws Exception;
+    boolean createMeter(DeviceId deviceId, String bandwidthProfile);
 
     /**
      * This method will check for all the meters specified in the sadis uniTagList,
-     * if not present it will create it and throw an Exception.
+     * if not present it will create them and return false.
      * @param deviceId DeviceId
      * @param si SubscriberAndDeviceInformation
-     * @throws Exception Throws an exception if any of the meters need to be created
+     * @return boolean
      */
-    void createMeters(DeviceId deviceId, SubscriberAndDeviceInformation si) throws Exception;
+    boolean createMeters(DeviceId deviceId, SubscriberAndDeviceInformation si);
 
     boolean hasMeterByBandwidthProfile(DeviceId deviceId, String bandwidthProfile);
 

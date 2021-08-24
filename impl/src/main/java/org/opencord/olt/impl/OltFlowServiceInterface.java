@@ -12,11 +12,10 @@ import java.util.Set;
 
 public interface OltFlowServiceInterface {
 
-    void handleBasicPortFlows(
-            DiscoveredSubscriber sub, String defaultBpId, String oltBandwidthProfile)
-                throws Exception;
+    boolean handleBasicPortFlows(
+            DiscoveredSubscriber sub, String defaultBpId, String oltBandwidthProfile);
 
-    void handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBpId) throws Exception;
+    boolean handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBpId);
     void handleNniFlows(Device device, Port port, OltFlowService.FlowAction action);
 
     boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber);

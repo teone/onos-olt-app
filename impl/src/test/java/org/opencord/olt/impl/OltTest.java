@@ -46,7 +46,6 @@ import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.atLeast;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doReturn;
-import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.reset;
 import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.verify;
@@ -100,6 +99,8 @@ public class OltTest extends OltTestHelpers {
     public void testProcessDiscoveredSubscribersBasicPortSuccess() throws Exception {
         doReturn(true).when(component.deviceService).isAvailable(any());
         doReturn(sub.port).when(component.deviceService).getPort(any(), any());
+        doReturn(true).when(component.oltFlowService).handleBasicPortFlows(eq(sub), eq(DEFAULT_BP_ID_DEFAULT),
+                eq(DEFAULT_BP_ID_DEFAULT));
 
         // adding the discovered subscriber to the queue
         component.discoveredSubscribersQueue.add(sub);
@@ -117,7 +118,7 @@ public class OltTest extends OltTestHelpers {
     public void testProcessDiscoveredSubscribersBasicPortException() throws Exception {
         doReturn(true).when(component.deviceService).isAvailable(any());
         doReturn(sub.port).when(component.deviceService).getPort(any(), any());
-        doThrow(Exception.class).when(component.oltFlowService).handleBasicPortFlows(any(), eq(DEFAULT_BP_ID_DEFAULT),
+        doReturn(false).when(component.oltFlowService).handleBasicPortFlows(any(), eq(DEFAULT_BP_ID_DEFAULT),
                 eq(DEFAULT_BP_ID_DEFAULT));
         // replace the queue with a spy
         BlockingQueue<DiscoveredSubscriber> spiedQueue = spy(component.discoveredSubscribersQueue);
