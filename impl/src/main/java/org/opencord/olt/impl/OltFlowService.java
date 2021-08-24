@@ -310,6 +310,18 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
+    public Map<ConnectPoint, Boolean> getRequestedSusbcribers() {
+        Map<ConnectPoint, Boolean> subscribers =
+                new HashMap<>();
+        try {
+            provisionedSubscribersReadLock.lock();
+            return ImmutableMap.copyOf(provisionedSubscribers);
+        } finally {
+            provisionedSubscribersReadLock.unlock();
+        }
+    }
+
+    @Override
     public void handleNniFlows(Device device, Port port, FlowAction action) {
 
         // always handle the LLDP flow

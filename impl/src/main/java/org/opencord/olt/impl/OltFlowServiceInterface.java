@@ -1,6 +1,5 @@
 package org.opencord.olt.impl;
 
-import com.google.common.collect.ImmutableMap;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
@@ -27,7 +26,8 @@ public interface OltFlowServiceInterface {
     void purgeDeviceFlows(DeviceId deviceId);
 
     Map<ConnectPoint, OltFlowService.OltPortStatus> getConnectPointStatus();
-    ImmutableMap<ConnectPoint, Set<UniTagInformation>> getProgrammedSusbcribers();
+    Map<ConnectPoint, Set<UniTagInformation>> getProgrammedSusbcribers();
+    Map<ConnectPoint, Boolean> getRequestedSusbcribers();
 
     Boolean isSubscriberProvisioned(ConnectPoint cp);
     void updateProvisionedSubscriberStatus(ConnectPoint cp, Boolean status);

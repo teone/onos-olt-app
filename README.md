@@ -30,6 +30,22 @@ org.opencord.olt.impl.OltMeterService
 
 ```
 
+## CLI commands
+
+```text
+karaf@root > volt-                                                                                                                                                                                   00:29:19
+volt-add-subscriber-access                                                           (Adds a subscriber to an access device)
+volt-bpmeter-mappings         (Shows information about programmed meters, including the relation with the Bandwidth Profile)
+volt-failed-subscribers                                                         (Shows subscribers that failed provisioning)
+volt-olts                                                                                    (Shows vOLTs connected to ONOS)
+volt-port-status                                    (Shows information about the OLT ports (default EAPOL, subscriber flows)
+volt-programmed-meters        (Shows information about programmed meters, including the relation with the Bandwidth Profile)
+volt-programmed-subscribers                                                  (Shows subscribers programmed in the dataplane)
+volt-remove-subscriber-access                                                        (Adds a subscriber to an access device)
+volt-requested-subscribers (Shows subscribers programmed by the operator. Their data-plane status depends on the ONU status)
+
+```
+
 ## App Design
 
 The `org.opencord.olt` application internal structure reflects the following diagram:
