@@ -26,6 +26,7 @@ import org.opencord.sadis.SubscriberAndDeviceInformation;
 import org.osgi.service.component.ComponentContext;
 import org.osgi.service.component.annotations.Activate;
 import org.osgi.service.component.annotations.Component;
+import org.osgi.service.component.annotations.Deactivate;
 import org.osgi.service.component.annotations.Modified;
 import org.osgi.service.component.annotations.Reference;
 import org.osgi.service.component.annotations.ReferenceCardinality;
@@ -145,6 +146,13 @@ public class OltMeterService implements OltMeterServiceInterface {
         if (d != null) {
             deleteMeters = d;
         }
+    }
+
+    @Deactivate
+    public void deactivate() {
+        cfgService.unregisterProperties(getClass(), false);
+        pendingMetersExecutor.shutdown();
+        meterService.removeListener(meterListener);
     }
 
     public Map<DeviceId, List<MeterData>> getProgrammedMeters() {

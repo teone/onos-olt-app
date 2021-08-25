@@ -29,6 +29,7 @@ import org.onosproject.net.HostLocation;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
+import org.onosproject.net.flow.FlowRuleService;
 import org.onosproject.net.flow.criteria.Criteria;
 import org.onosproject.net.flowobjective.DefaultFilteringObjective;
 import org.onosproject.net.flowobjective.FilteringObjective;
@@ -90,6 +91,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         oltFlowService.oltMeterService = Mockito.mock(OltMeterService.class);
         oltFlowService.flowObjectiveService = Mockito.mock(FlowObjectiveService.class);
         oltFlowService.hostService = Mockito.mock(HostService.class);
+        oltFlowService.flowRuleService = Mockito.mock(FlowRuleService.class);
 
         doReturn(Mockito.mock(BaseInformationService.class))
                 .when(oltFlowService.sadisService).getSubscriberInfoService();

@@ -23,10 +23,20 @@ import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.flow.DefaultTrafficSelector;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
+import org.onosproject.net.flow.FlowRule;
+import org.onosproject.net.flow.FlowRuleEvent;
+import org.onosproject.net.flow.FlowRuleListener;
 import org.onosproject.net.flow.FlowRuleService;
 import org.onosproject.net.flow.TrafficSelector;
 import org.onosproject.net.flow.TrafficTreatment;
 import org.onosproject.net.flow.criteria.Criteria;
+import org.onosproject.net.flow.criteria.Criterion;
+import org.onosproject.net.flow.criteria.EthTypeCriterion;
+import org.onosproject.net.flow.criteria.IPProtocolCriterion;
+import org.onosproject.net.flow.criteria.PortCriterion;
+import org.onosproject.net.flow.criteria.UdpPortCriterion;
+import org.onosproject.net.flow.criteria.VlanIdCriterion;
+import org.onosproject.net.flow.instructions.L2ModificationInstruction;
 import org.onosproject.net.flowobjective.DefaultFilteringObjective;
 import org.onosproject.net.flowobjective.DefaultForwardingObjective;
 import org.onosproject.net.flowobjective.FilteringObjective;
@@ -65,6 +75,7 @@ import java.util.concurrent.locks.ReentrantReadWriteLock;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static org.onlab.util.Tools.get;
+import static org.onosproject.net.flow.instructions.Instruction.Type.L2MODIFICATION;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_TP_ID;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_TP_ID_DEFAULT;
 import static org.opencord.olt.impl.OsgiPropertyConstants.DOWNSTREAM_OLT;
@@ -198,6 +209,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         UPSTREAM,
         DOWNSTREAM,
     }
+    InternalFlowListener internalFlowListener = new InternalFlowListener();
 
     @Activate
     public void activate() {
@@ -211,12 +223,16 @@ public class OltFlowService implements OltFlowServiceInterface {
         cpStatus = new HashMap<>();
         provisionedSubscribers = new HashMap<>();
 
+
+        flowRuleService.addListener(internalFlowListener);
+
         log.info("Activated");
     }
 
     @Deactivate
     public void deactivate() {
         cfgService.unregisterProperties(getClass(), false);
+        flowRuleService.removeListener(internalFlowListener);
     }
 
     @Modified
@@ -513,7 +529,8 @@ public class OltFlowService implements OltFlowServiceInterface {
                 return false;
             }
             return status.defaultEapolStatus == OltFlowsStatus.ADDED ||
-                    status.defaultEapolStatus == OltFlowsStatus.PENDING_ADD;
+                    status.defaultEapolStatus == OltFlowsStatus.PENDING_ADD ||
+                    status.defaultEapolStatus == OltFlowsStatus.PENDING_REMOVE;
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -601,11 +618,11 @@ public class OltFlowService implements OltFlowServiceInterface {
                                  String oltBandwidthProfile, FlowAction action, VlanId vlanId) {
 
         ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
-
         if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
             OltFlowsStatus status = action == FlowAction.ADD ?
-                    OltFlowsStatus.PENDING_ADD : OltFlowsStatus.PENDING_REMOVE;
+                                OltFlowsStatus.PENDING_ADD : OltFlowsStatus.PENDING_REMOVE;
             updateConnectPointStatus(cp, status, OltFlowsStatus.NONE, OltFlowsStatus.NONE);
+
         }
 
         DefaultFilteringObjective.Builder filterBuilder = DefaultFilteringObjective.builder();
@@ -671,19 +688,6 @@ public class OltFlowService implements OltFlowServiceInterface {
                     public void onSuccess(Objective objective) {
                         log.info("EAPOL flow {} for {}/{} with details {}",
                                 action, sub.device.id(), sub.port.number(), objective);
-
-                        // update the flow status in cpStatus map
-
-                        OltFlowsStatus status = action.equals(FlowAction.ADD) ?
-                                OltFlowsStatus.ADDED : OltFlowsStatus.REMOVED;
-                        // NOTE it may be worthy to look into updating the cpStatusMap
-                        // based on flow events instead of flowObjective results
-                        // downside: may be much slower
-                        if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
-                            // NOTE we only care about EAPOL status with the default VLAN,
-                            // a tagged EAPOL flow falls in the subscriber flows category
-                            updateConnectPointStatus(cp, status, null, null);
-                        }
                     }
 
                     @Override
@@ -899,11 +903,6 @@ public class OltFlowService implements OltFlowServiceInterface {
                 log.info("DHCP {} filter for {} {}.",
                         (ethType.equals(EthType.EtherType.IPV4.ethType())) ? V4 : V6, port,
                         action);
-
-                ConnectPoint cp = new ConnectPoint(deviceId, port.number());
-                OltFlowsStatus status = action.equals(FlowAction.ADD) ?
-                        OltFlowsStatus.ADDED : OltFlowsStatus.REMOVED;
-                updateConnectPointStatus(cp, null, null, status);
             }
 
             @Override
@@ -1081,11 +1080,6 @@ public class OltFlowService implements OltFlowServiceInterface {
             @Override
             public void onSuccess(Objective objective) {
                 log.info("Upstream Data plane filter for {} {}.", port, action);
-
-                ConnectPoint cp = new ConnectPoint(deviceId, port.number());
-                OltFlowsStatus status = action.equals(FlowAction.ADD) ?
-                        OltFlowsStatus.ADDED : OltFlowsStatus.REMOVED;
-                updateConnectPointStatus(cp, null, status, null);
             }
 
             @Override
@@ -1177,11 +1171,6 @@ public class OltFlowService implements OltFlowServiceInterface {
             @Override
             public void onSuccess(Objective objective) {
                 log.info("Downstream Data plane filter for {} {}.", port, action);
-
-                ConnectPoint cp = new ConnectPoint(deviceId, port.number());
-                OltFlowsStatus status = action.equals(FlowAction.ADD) ?
-                        OltFlowsStatus.ADDED : OltFlowsStatus.REMOVED;
-                updateConnectPointStatus(cp, null, status, null);
             }
 
             @Override
@@ -1341,6 +1330,114 @@ public class OltFlowService implements OltFlowServiceInterface {
             this.defaultEapolStatus = defaultEapolStatus;
             this.subscriberFlowsStatus = subscriberFlowsStatus;
             this.dhcpStatus = dhcpStatus;
+        }
+    }
+
+    private class InternalFlowListener implements FlowRuleListener {
+        @Override
+        public void event(FlowRuleEvent event) {
+            switch (event.type()) {
+                case RULE_ADDED:
+                case RULE_REMOVED:
+                    ConnectPoint cp = getCpFromFlowRule(event.subject());
+                    log.info("TEO flow event {} on cp {}: {}", event.type(), cp, event.subject());
+                    updateCpStatus(event.type(), cp, event.subject());
+                case RULE_ADD_REQUESTED:
+                case RULE_REMOVE_REQUESTED:
+                    // NOTE that PENDING_ADD/REMOVE is set when we create the flowObjective
+                    return;
+                default:
+                    return;
+            }
+        }
+
+        private void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
+            OltFlowsStatus status = flowRuleStatusToOltFlowStatus(type);
+            if (isDefaultEapolFlow(flowRule)) {
+                log.info("TEO update defaultEapolStatus {}", status);
+                updateConnectPointStatus(cp, status, null, null);
+            } else if (isDhcpFlow(flowRule)) {
+                log.info("TEO update dhcpStatus {}", status);
+                updateConnectPointStatus(cp, null, null, status);
+            } else if (isDataFlow(flowRule)) {
+                log.info("TEO update dataplaneStatus {}", status);
+                updateConnectPointStatus(cp, null, status, null);
+            }
+        }
+
+        private boolean isDefaultEapolFlow(FlowRule flowRule) {
+            EthTypeCriterion c = (EthTypeCriterion) flowRule.selector().getCriterion(Criterion.Type.ETH_TYPE);
+            if (c == null) {
+                return false;
+            }
+            if (c.ethType().equals(EthType.EtherType.EAPOL.ethType())) {
+                AtomicBoolean isDefault = new AtomicBoolean(false);
+                flowRule.treatment().allInstructions().forEach(instruction -> {
+                    if (instruction.type() == L2MODIFICATION) {
+                        L2ModificationInstruction modificationInstruction = (L2ModificationInstruction) instruction;
+                        if (modificationInstruction.subtype() == L2ModificationInstruction.L2SubType.VLAN_ID) {
+                            L2ModificationInstruction.ModVlanIdInstruction vlanInstruction =
+                                    (L2ModificationInstruction.ModVlanIdInstruction) modificationInstruction;
+                            if (vlanInstruction.vlanId().id().equals(EAPOL_DEFAULT_VLAN)) {
+                                isDefault.set(true);
+                                return;
+                            }
+                        }
+                    }
+                });
+                return isDefault.get();
+            }
+            return false;
+        }
+
+        private boolean isDhcpFlow(FlowRule flowRule) {
+            IPProtocolCriterion ipCriterion = (IPProtocolCriterion) flowRule.selector()
+                    .getCriterion(Criterion.Type.IP_PROTO);
+            if (ipCriterion == null) {
+                return false;
+            }
+
+            UdpPortCriterion src = (UdpPortCriterion) flowRule.selector().getCriterion(Criterion.Type.UDP_SRC);
+
+            if (src == null) {
+                return false;
+            }
+            return ipCriterion.protocol() == IPv4.PROTOCOL_UDP && src.udpPort().toInt() == 68;
+        }
+
+        private boolean isDataFlow(FlowRule flowRule) {
+            // we consider subscriber flows the one that matches on VLAN_VID: 0
+            VlanIdCriterion c = (VlanIdCriterion) flowRule.selector().getCriterion(Criterion.Type.VLAN_VID);
+            if (c == null) {
+                return false;
+            }
+            return c.vlanId().id() == 0;
+        }
+
+        private ConnectPoint getCpFromFlowRule(FlowRule flowRule) {
+            DeviceId deviceId = flowRule.deviceId();
+            PortCriterion inPort = (PortCriterion) flowRule.selector().getCriterion(Criterion.Type.IN_PORT);
+            if (inPort != null) {
+                PortNumber port = inPort.port();
+                ConnectPoint cp = new ConnectPoint(deviceId, port);
+                return cp;
+            }
+            return null;
+        }
+
+        private OltFlowsStatus flowRuleStatusToOltFlowStatus(FlowRuleEvent.Type type) {
+            switch (type) {
+                case RULE_ADD_REQUESTED:
+                    return OltFlowsStatus.PENDING_ADD;
+                case RULE_ADDED:
+                    return OltFlowsStatus.ADDED;
+                case RULE_REMOVE_REQUESTED:
+                    return OltFlowsStatus.PENDING_REMOVE;
+                case RULE_REMOVED:
+                    return OltFlowsStatus.REMOVED;
+                default:
+                    return OltFlowsStatus.NONE;
+            }
         }
     }
 }
