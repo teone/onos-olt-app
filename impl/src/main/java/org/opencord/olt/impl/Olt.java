@@ -230,6 +230,11 @@ public class Olt implements OltService {
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                 DiscoveredSubscriber.Status.ADDED, true);
 
+        if (oltDeviceService.isNniPort(device, port)) {
+            log.warn("will not provision a subscriber on the NNI");
+            return false;
+        }
+
         if (oltFlowService.isSubscriberProvisioned(cp)) {
             log.error("Subscriber on {} is already provisioned", cp);
             return false;

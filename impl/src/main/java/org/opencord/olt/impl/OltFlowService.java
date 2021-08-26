@@ -94,6 +94,8 @@ import static org.opencord.olt.impl.OsgiPropertyConstants.ENABLE_PPPOE;
 import static org.opencord.olt.impl.OsgiPropertyConstants.ENABLE_PPPOE_DEFAULT;
 import static org.opencord.olt.impl.OsgiPropertyConstants.UPSTREAM_OLT;
 import static org.opencord.olt.impl.OsgiPropertyConstants.UPSTREAM_ONU;
+import static org.opencord.olt.impl.OsgiPropertyConstants.WAIT_FOR_REMOVAL;
+import static org.opencord.olt.impl.OsgiPropertyConstants.WAIT_FOR_REMOVAL_DEFAULT;
 
 @Component(immediate = true, property = {
         ENABLE_DHCP_ON_NNI + ":Boolean=" + ENABLE_DHCP_ON_NNI_DEFAULT,
@@ -102,7 +104,9 @@ import static org.opencord.olt.impl.OsgiPropertyConstants.UPSTREAM_ONU;
         ENABLE_IGMP_ON_NNI + ":Boolean=" + ENABLE_IGMP_ON_NNI_DEFAULT,
         ENABLE_EAPOL + ":Boolean=" + ENABLE_EAPOL_DEFAULT,
         ENABLE_PPPOE + ":Boolean=" + ENABLE_PPPOE_DEFAULT,
-        DEFAULT_TP_ID + ":Integer=" + DEFAULT_TP_ID_DEFAULT
+        DEFAULT_TP_ID + ":Integer=" + DEFAULT_TP_ID_DEFAULT,
+        // FIXME remove this option as potentially dangerous in production
+        WAIT_FOR_REMOVAL + ":Boolean=" + WAIT_FOR_REMOVAL_DEFAULT
 })
 public class OltFlowService implements OltFlowServiceInterface {
 
@@ -200,6 +204,8 @@ public class OltFlowService implements OltFlowServiceInterface {
      **/
     protected int defaultTechProfileId = DEFAULT_TP_ID_DEFAULT;
 
+    protected boolean waitForRemoval = WAIT_FOR_REMOVAL_DEFAULT;
+
     public enum FlowAction {
         ADD,
         REMOVE,
@@ -270,15 +276,21 @@ public class OltFlowService implements OltFlowServiceInterface {
             enablePppoe = pppoe;
         }
 
+        Boolean wait = Tools.isPropertyEnabled(properties, ENABLE_PPPOE);
+        if (wait != null) {
+            waitForRemoval = wait;
+        }
+
         String tpId = get(properties, DEFAULT_TP_ID);
         defaultTechProfileId = isNullOrEmpty(tpId) ? DEFAULT_TP_ID_DEFAULT : Integer.parseInt(tpId.trim());
 
         log.info("modified. Values = enableDhcpOnNni: {}, enableDhcpV4: {}, " +
                         "enableDhcpV6:{}, enableIgmpOnNni:{}, " +
-                        "enableEapol:{}, enablePppoe:{}, defaultTechProfileId:{}",
+                        "enableEapol:{}, enablePppoe:{}, defaultTechProfileId:{}," +
+                        "waitForRemoval:{}",
                 enableDhcpOnNni, enableDhcpV4, enableDhcpV6,
                 enableIgmpOnNni, enableEapol, enablePppoe,
-                defaultTechProfileId);
+                defaultTechProfileId, waitForRemoval);
 
     }
 
@@ -433,9 +445,17 @@ public class OltFlowService implements OltFlowServiceInterface {
             if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
                 // remove EAPOL flow and throw exception so that we'll retry later
                 removeDefaultFlows(sub, defaultBandwithProfile, defaultBandwithProfile);
-                log.debug("Awaiting for default flows removal for {}/{} ({})",
-                        sub.device.id(), sub.port.number(), sub.portName());
-                return false;
+
+                if (waitForRemoval) {
+                    // NOTE wait for removal is a flag only needed to make sure VOLTHA
+                    // does not explode with the flows remove/add in the same batch
+                    log.debug("Awaiting for default flows removal for {}/{} ({})",
+                            sub.device.id(), sub.port.number(), sub.portName());
+                    return false;
+                } else {
+                    log.warn("continuing provisioning on {}/{} for {}",
+                            sub.device.id(), sub.port.number(), sub.portName());
+                }
             }
         }
 

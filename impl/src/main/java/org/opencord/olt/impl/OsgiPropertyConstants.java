@@ -54,6 +54,9 @@ public final class OsgiPropertyConstants {
     public static final String ENABLE_PPPOE = "enablePppoe";
     public static final boolean ENABLE_PPPOE_DEFAULT = false;
 
+    public static final String WAIT_FOR_REMOVAL = "waitForRemoval";
+    public static final boolean WAIT_FOR_REMOVAL_DEFAULT = true;
+
     public static final String REQUIRED_DRIVERS_PROPERTY_DELAY = "requiredDriversPropertyDelay";
     public static final int REQUIRED_DRIVERS_PROPERTY_DELAY_DEFAULT = 5;
 
