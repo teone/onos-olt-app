@@ -276,7 +276,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             enablePppoe = pppoe;
         }
 
-        Boolean wait = Tools.isPropertyEnabled(properties, ENABLE_PPPOE);
+        Boolean wait = Tools.isPropertyEnabled(properties, WAIT_FOR_REMOVAL);
         if (wait != null) {
             waitForRemoval = wait;
         }
@@ -405,11 +405,17 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private boolean addDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile) {
+
+
+
         if (!oltMeterService.createMeter(sub.device.id(), bandwidthProfile)) {
             if (log.isTraceEnabled()) {
                 log.trace("waiting on meter");
             }
             return false;
+        }
+        if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
+            return true;
         }
         return handleEapolFlow(sub, bandwidthProfile,
                 oltBandwidthProfile, FlowAction.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
@@ -444,7 +450,9 @@ public class OltFlowService implements OltFlowServiceInterface {
         if (enableEapol) {
             if (hasDefaultEapol(sub.device.id(), sub.port.number())) {
                 // remove EAPOL flow and throw exception so that we'll retry later
-                removeDefaultFlows(sub, defaultBandwithProfile, defaultBandwithProfile);
+                if (!isDefaultEapolPendingRemoval(sub.device.id(), sub.port.number())) {
+                    removeDefaultFlows(sub, defaultBandwithProfile, defaultBandwithProfile);
+                }
 
                 if (waitForRemoval) {
                     // NOTE wait for removal is a flag only needed to make sure VOLTHA
@@ -457,6 +465,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                             sub.device.id(), sub.port.number(), sub.portName());
                 }
             }
+
         }
 
         SubscriberAndDeviceInformation si = subsService.get(sub.portName());
@@ -548,9 +557,25 @@ public class OltFlowService implements OltFlowServiceInterface {
             if (status == null) {
                 return false;
             }
+            // NOTE we consider ERROR as a present EAPOL flow as ONOS
+            // will keep trying to add it
             return status.defaultEapolStatus == OltFlowsStatus.ADDED ||
                     status.defaultEapolStatus == OltFlowsStatus.PENDING_ADD ||
-                    status.defaultEapolStatus == OltFlowsStatus.PENDING_REMOVE;
+                    status.defaultEapolStatus == OltFlowsStatus.ERROR;
+        } finally {
+            cpStatusReadLock.unlock();
+        }
+    }
+
+    public boolean isDefaultEapolPendingRemoval(DeviceId deviceId, PortNumber portNumber) {
+        try {
+            cpStatusReadLock.lock();
+            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
+            OltPortStatus status = cpStatus.get(cp);
+            if (status == null) {
+                return false;
+            }
+            return status.defaultEapolStatus == OltFlowsStatus.PENDING_REMOVE;
         } finally {
             cpStatusReadLock.unlock();
         }

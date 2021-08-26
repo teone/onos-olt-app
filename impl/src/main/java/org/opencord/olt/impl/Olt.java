@@ -23,7 +23,6 @@ import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
-import org.onosproject.net.device.DeviceListener;
 import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.device.DeviceStore;
 import org.opencord.olt.OltService;
@@ -117,7 +116,7 @@ public class Olt implements OltService {
     /**
      * Listener for OLT devices events.
      */
-    private DeviceListener deviceListener;
+    private OltDeviceListener deviceListener;
     protected ScheduledExecutorService discoveredSubscriberExecutor =
             Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                     "discovered-cp-%d", log));
@@ -150,6 +149,7 @@ public class Olt implements OltService {
         deviceService.removeListener(deviceListener);
         discoveredSubscriberExecutor.shutdown();
         flowsExecutor.shutdown();
+        deviceListener.deactivate();
         log.info("Stopped");
     }
 

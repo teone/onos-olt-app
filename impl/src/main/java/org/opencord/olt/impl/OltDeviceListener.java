@@ -15,6 +15,10 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+
+import static org.onlab.util.Tools.groupedThreads;
 
 public class OltDeviceListener implements DeviceListener {
     private final Logger log = LoggerFactory.getLogger(getClass());
@@ -35,6 +39,8 @@ public class OltDeviceListener implements DeviceListener {
 
     private BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue;
 
+    protected ExecutorService portExecutor;
+
     public OltDeviceListener(ClusterService clusterService, MastershipService mastershipService,
                              LeadershipService leadershipService, DeviceService deviceService,
                              OltDeviceServiceInterface oltDeviceService, OltFlowServiceInterface oltFlowService,
@@ -48,6 +54,13 @@ public class OltDeviceListener implements DeviceListener {
         this.oltFlowService = oltFlowService;
         this.oltMeterService = oltMeterService;
         this.discoveredSubscribersQueue = discoveredSubscribersQueue;
+        this.portExecutor = Executors.newFixedThreadPool(8,
+                groupedThreads("onos/olt-device-listener",
+                        "olt-device-listener-%d"));
+    }
+
+    public void deactivate() {
+        this.portExecutor.shutdown();
     }
 
     /**
@@ -93,7 +106,9 @@ public class OltDeviceListener implements DeviceListener {
                 }
                 // port added, updated and removed are treated in the same way as we only care whether the port
                 // is enabled or not
-                handleOltPort(event.type(), event.subject(), event.port());
+                portExecutor.execute(() -> {
+                    handleOltPort(event.type(), event.subject(), event.port());
+                });
                 return;
             case DEVICE_AVAILABILITY_CHANGED:
                 // NOTE that upon disconnection there is no mastership on the device,

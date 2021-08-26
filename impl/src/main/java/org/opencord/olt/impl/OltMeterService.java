@@ -181,7 +181,7 @@ public class OltMeterService implements OltMeterServiceInterface {
             }
             return false;
         }
-        log.info("Meter found for {} on device {}", bandwidthProfile, deviceId);
+        log.debug("Meter found for {} on device {}", bandwidthProfile, deviceId);
         return true;
     }
 
@@ -273,6 +273,8 @@ public class OltMeterService implements OltMeterServiceInterface {
                     filter(md -> md.bandwidthProfile.equals(bpId) && md.meterStatus.equals(MeterStatus.ADDED))
                     .findFirst().orElse(null);
             if (meter != null) {
+                log.debug("Found meter {} on device {} for bandwidth profile {}",
+                        meter.meterId, deviceId, bpId);
                 return meter.meterId;
             }
             return null;
@@ -300,7 +302,6 @@ public class OltMeterService implements OltMeterServiceInterface {
      *
      * @param deviceId the DeviceId
      * @param bpId     the BandwidthProfile ID
-     * @throws Exception if the meter can't be created
      */
     public void createMeterForBp(DeviceId deviceId, String bpId) {
         BandwidthProfileInformation bpInfo = getBandwidthProfileInformation(bpId);
@@ -309,7 +310,7 @@ public class OltMeterService implements OltMeterServiceInterface {
             return;
         }
 
-        log.debug("Creating meter for {} on device {}", bpInfo, deviceId);
+        log.info("Creating meter for {} on device {}", bpInfo, deviceId);
 
         List<Band> meterBands = createMeterBands(bpInfo);
 

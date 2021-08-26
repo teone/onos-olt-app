@@ -4,6 +4,8 @@ import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
+import org.mockito.invocation.InvocationOnMock;
+import org.mockito.stubbing.Answer;
 import org.onlab.packet.ChassisId;
 import org.onosproject.cluster.ClusterService;
 import org.onosproject.cluster.ControllerNode;
@@ -25,10 +27,12 @@ import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.provider.ProviderId;
 import java.util.LinkedList;
 import java.util.concurrent.BlockingQueue;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
 
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
@@ -56,7 +60,16 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         OltDeviceListener baseClass = new OltDeviceListener(clusterService, mastershipService,
                 leadershipService, deviceService, oltDeviceService, oltFlowService,
                 oltMeterService, discoveredSubscribersQueue);
+        baseClass.portExecutor = Mockito.mock(ExecutorService.class);
         oltDeviceListener = Mockito.spy(baseClass);
+
+        // mock the executor so it immediately invokes the method
+        doAnswer(new Answer<Object>() {
+            public Object answer(InvocationOnMock invocation) throws Exception {
+                ((Runnable) invocation.getArguments()[0]).run();
+                return null;
+            }
+        }).when(baseClass.portExecutor).execute(any(Runnable.class));
 
 
         discoveredSubscribersQueue.clear();
@@ -117,7 +130,7 @@ public class OltDeviceListenerTest extends OltTestHelpers {
     }
 
     @Test
-    public void testNniEvent() {
+    public void testNniEvent() throws InterruptedException {
         // make sure the device is recognized as an OLT and the port is recognized as an NNI,
         // and we're local leaders
         doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
