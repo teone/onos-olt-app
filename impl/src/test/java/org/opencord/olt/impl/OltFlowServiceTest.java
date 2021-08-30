@@ -37,13 +37,13 @@ import org.onosproject.net.flowobjective.FlowObjectiveService;
 import org.onosproject.net.host.HostService;
 import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.provider.ProviderId;
+import org.onosproject.store.service.TestStorageService;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
 import org.opencord.sadis.SubscriberAndDeviceInformation;
 import org.opencord.sadis.UniTagInformation;
 
 import java.util.Arrays;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedList;
 import java.util.List;
@@ -92,6 +92,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         oltFlowService.flowObjectiveService = Mockito.mock(FlowObjectiveService.class);
         oltFlowService.hostService = Mockito.mock(HostService.class);
         oltFlowService.flowRuleService = Mockito.mock(FlowRuleService.class);
+        oltFlowService.storageService = new TestStorageService();
 
         doReturn(Mockito.mock(BaseInformationService.class))
                 .when(oltFlowService.sadisService).getSubscriberInfoService();
@@ -112,7 +113,8 @@ public class OltFlowServiceTest extends OltTestHelpers {
         ConnectPoint cp3 = new ConnectPoint(DeviceId.deviceId("test1"), PortNumber.portNumber(3));
 
         // cpStatus map for the test
-        oltFlowService.cpStatus = new HashMap<>();
+        oltFlowService.cpStatus = oltFlowService.storageService.
+                <ConnectPoint, OltFlowService.OltPortStatus>consistentMapBuilder().build().asJavaMap();
         OltFlowService.OltPortStatus cp1Status = new OltFlowService.OltPortStatus(PENDING_ADD, NONE, NONE);
         oltFlowService.cpStatus.put(cp1, cp1Status);
 

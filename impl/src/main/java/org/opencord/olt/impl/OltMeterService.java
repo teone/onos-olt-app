@@ -1,6 +1,7 @@
 package org.opencord.olt.impl;
 
 import com.google.common.collect.ImmutableMap;
+import org.onlab.util.KryoNamespace;
 import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.core.ApplicationId;
@@ -18,6 +19,8 @@ import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.meter.MeterListener;
 import org.onosproject.net.meter.MeterRequest;
 import org.onosproject.net.meter.MeterService;
+import org.onosproject.store.serializers.KryoNamespaces;
+import org.onosproject.store.service.Serializer;
 import org.onosproject.store.service.StorageService;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
@@ -90,7 +93,7 @@ public class OltMeterService implements OltMeterServiceInterface {
      * Programmed Meters status map.
      * Keeps track of which meter is programmed on which device for which BandwidthProfile.
      */
-    protected HashMap<DeviceId, List<MeterData>> programmedMeters;
+    protected Map<DeviceId, List<MeterData>> programmedMeters;
 
     protected BlockingQueue<OltMeterRequest> pendingMeters =
             new LinkedBlockingQueue<>();
@@ -112,21 +115,19 @@ public class OltMeterService implements OltMeterServiceInterface {
     public void activate() {
         appId = coreService.registerApplication(APP_NAME);
 
-//        KryoNamespace serializer = KryoNamespace.newBuilder()
-//                .register(KryoNamespaces.API)
-//                .register(List.class)
-//                .register(MeterData.class)
-//                .build();
+        KryoNamespace serializer = KryoNamespace.newBuilder()
+                .register(KryoNamespaces.API)
+                .register(List.class)
+                .register(MeterData.class)
+                .build();
 
-//        programmedMeters = storageService.<DeviceId, MeterData>consistentMultimapBuilder()
-//                .withName("volt-programmed-meters")
-//                .withSerializer(Serializer.using(serializer))
-//                .withApplicationId(appId)
-//                .build();
+        programmedMeters = storageService.<DeviceId, List<MeterData>>consistentMapBuilder()
+                .withName("volt-programmed-meters")
+                .withSerializer(Serializer.using(serializer))
+                .withApplicationId(appId)
+                .build().asJavaMap();
 
-        // TODO this should be a distributed map
-        // NOTE this maps is lost on app/node restart, can we rebuild it?
-        programmedMeters = new HashMap<>();
+
         cfgService.registerProperties(getClass());
 
         bpService = sadisService.getBandwidthProfileService();

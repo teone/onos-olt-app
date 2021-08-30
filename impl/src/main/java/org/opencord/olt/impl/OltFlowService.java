@@ -7,6 +7,7 @@ import org.onlab.packet.IPv6;
 import org.onlab.packet.MacAddress;
 import org.onlab.packet.TpPort;
 import org.onlab.packet.VlanId;
+import org.onlab.util.KryoNamespace;
 import org.onlab.util.Tools;
 import org.onosproject.cfg.ComponentConfigService;
 import org.onosproject.core.ApplicationId;
@@ -47,6 +48,9 @@ import org.onosproject.net.flowobjective.ObjectiveContext;
 import org.onosproject.net.flowobjective.ObjectiveError;
 import org.onosproject.net.host.HostService;
 import org.onosproject.net.meter.MeterId;
+import org.onosproject.store.serializers.KryoNamespaces;
+import org.onosproject.store.service.Serializer;
+import org.onosproject.store.service.StorageService;
 import org.opencord.sadis.BandwidthProfileInformation;
 import org.opencord.sadis.BaseInformationService;
 import org.opencord.sadis.SadisService;
@@ -137,6 +141,9 @@ public class OltFlowService implements OltFlowServiceInterface {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected DeviceService deviceService;
 
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected StorageService storageService;
+
     protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
     protected BaseInformationService<BandwidthProfileInformation> bpService;
 
@@ -154,7 +161,7 @@ public class OltFlowService implements OltFlowServiceInterface {
      * Connect Point status map.
      * Used to keep track of which cp has flows that needs to be removed when the status changes.
      */
-    protected HashMap<ConnectPoint, OltPortStatus> cpStatus;
+    protected Map<ConnectPoint, OltPortStatus> cpStatus;
     private final ReentrantReadWriteLock cpStatusLock = new ReentrantReadWriteLock();
     private final Lock cpStatusWriteLock = cpStatusLock.writeLock();
     private final Lock cpStatusReadLock = cpStatusLock.readLock();
@@ -164,7 +171,7 @@ public class OltFlowService implements OltFlowServiceInterface {
      * They may or may not have flows, depending on the port status.
      * The map is used to define whether flows need to be provisioned when a port comes up.
      */
-    protected HashMap<ConnectPoint, Boolean> provisionedSubscribers;
+    protected Map<ConnectPoint, Boolean> provisionedSubscribers;
     private final ReentrantReadWriteLock provisionedSubscribersLock = new ReentrantReadWriteLock();
     private final Lock provisionedSubscribersWriteLock = provisionedSubscribersLock.writeLock();
     private final Lock provisionedSubscribersReadLock = provisionedSubscribersLock.readLock();
@@ -226,9 +233,24 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         // TODO this should be a distributed map
         // NOTE this maps is lost on app/node restart, can we rebuild it?
-        cpStatus = new HashMap<>();
-        provisionedSubscribers = new HashMap<>();
+//        provisionedSubscribers = new HashMap<>();
 
+        KryoNamespace serializer = KryoNamespace.newBuilder()
+                .register(KryoNamespaces.API)
+                .register(OltPortStatus.class)
+                .build();
+
+        cpStatus = storageService.<ConnectPoint, OltPortStatus>consistentMapBuilder()
+                .withName("volt-cp-status")
+                .withApplicationId(appId)
+                .withSerializer(Serializer.using(serializer))
+                .build().asJavaMap();
+
+        provisionedSubscribers = storageService.<ConnectPoint, Boolean>consistentMapBuilder()
+                .withName("volt-provisioned-subscriber")
+                .withApplicationId(appId)
+                .withSerializer(Serializer.using(serializer))
+                .build().asJavaMap();
 
         flowRuleService.addListener(internalFlowListener);
 
@@ -295,7 +317,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
-    public Map<ConnectPoint, OltPortStatus> getConnectPointStatus() {
+    public ImmutableMap<ConnectPoint, OltPortStatus> getConnectPointStatus() {
         try {
             cpStatusReadLock.lock();
             return ImmutableMap.copyOf(cpStatus);

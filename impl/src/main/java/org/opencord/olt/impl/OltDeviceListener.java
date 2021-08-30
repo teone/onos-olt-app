@@ -126,10 +126,12 @@ public class OltDeviceListener implements DeviceListener {
                     log.info("Device {} availability changed to false, but ports are still available, " +
                             "assuming disconnection", deviceId);
                 }
+                return;
             case DEVICE_REMOVED:
                 log.info("Device Removed,  purging meters and flows");
                 oltFlowService.purgeDeviceFlows(event.subject().id());
                 oltMeterService.purgeDeviceMeters(event.subject().id());
+                return;
             default:
                 log.debug("OltDeviceListener receives event: {}", event);
         }

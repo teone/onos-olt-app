@@ -10,6 +10,7 @@ import org.onosproject.net.DeviceId;
 import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.meter.MeterServiceAdapter;
 import org.onosproject.store.service.StorageServiceAdapter;
+import org.onosproject.store.service.TestStorageService;
 import org.opencord.sadis.SadisService;
 
 import java.util.LinkedList;
@@ -35,6 +36,7 @@ public class OltMeterServiceTest extends OltTestHelpers {
         component.storageService = new StorageServiceAdapter();
         component.sadisService = Mockito.mock(SadisService.class);
         component.meterService = new MeterServiceAdapter();
+        component.storageService = new TestStorageService();
         component.activate();
 
         // we're spying on the component under test so that we can mock the return of iternal methods
