@@ -199,7 +199,7 @@ public class OltDeviceListenerTest extends OltTestHelpers {
 
         assert !discoveredSubscribersQueue.isEmpty();
         sub = discoveredSubscribersQueue.poll();
-        assert !sub.provisionSubscriber; // this is not a provision subscriber call
+        assert !sub.hasSubscriber; // this is not a provision subscriber call
         assert sub.device.equals(testDevice);
         assert sub.port.equals(uniAddedDisabled);
         assert sub.status.equals(DiscoveredSubscriber.Status.REMOVED); // we need to remove flows for this port (if any)
@@ -213,7 +213,7 @@ public class OltDeviceListenerTest extends OltTestHelpers {
 
         assert !discoveredSubscribersQueue.isEmpty();
         sub = discoveredSubscribersQueue.poll();
-        assert !sub.provisionSubscriber; // this is not a provision subscriber call
+        assert !sub.hasSubscriber; // this is not a provision subscriber call
         assert sub.device.equals(testDevice);
         assert sub.port.equals(uniUpdateEnabled);
         assert sub.status.equals(DiscoveredSubscriber.Status.ADDED); // we need to remove flows for this port (if any)

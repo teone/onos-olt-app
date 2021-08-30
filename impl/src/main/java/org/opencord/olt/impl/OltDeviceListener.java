@@ -88,6 +88,7 @@ public class OltDeviceListener implements DeviceListener {
 
     @Override
     public void event(DeviceEvent event) {
+        // TODO handle events for existing items when app is installed/removed
         if (!oltDeviceService.isOlt(event.subject())) {
             // if the device is not an OLT recognized in org.opencord.sadis
             // then we don't care about the events it is emitting
@@ -117,10 +118,18 @@ public class OltDeviceListener implements DeviceListener {
                 if (!deviceService.isAvailable(deviceId) && deviceService.getPorts(deviceId).isEmpty()) {
                     // we're only clearing the device if there are no available ports,
                     // otherwise we assume it's a temporary disconnection
-                    log.info("Device {} availability changed to false, purging meters and flows", deviceId);
+                    log.info("Device {} availability changed to false ports are empty, purging meters and flows",
+                            deviceId);
                     oltFlowService.purgeDeviceFlows(deviceId);
                     oltMeterService.purgeDeviceMeters(deviceId);
+                } else {
+                    log.info("Device {} availability changed to false, but ports are still available, " +
+                            "assuming disconnection", deviceId);
                 }
+            case DEVICE_REMOVED:
+                log.info("Device Removed,  purging meters and flows");
+                oltFlowService.purgeDeviceFlows(event.subject().id());
+                oltMeterService.purgeDeviceMeters(event.subject().id());
             default:
                 log.debug("OltDeviceListener receives event: {}", event);
         }

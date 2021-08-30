@@ -77,7 +77,7 @@ public class OltTest extends OltTestHelpers {
         component = new Olt();
         component.cfgService = new ComponentConfigAdapter();
         component.deviceService = Mockito.mock(DeviceService.class);
-        component.discoveredSubscribersQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
+        component.eventsQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
         component.discoveredSubscriberExecutor = Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                 "discovered-cp-%d", log));
         component.oltFlowService = Mockito.mock(OltFlowService.class);
@@ -85,7 +85,7 @@ public class OltTest extends OltTestHelpers {
 
         // reset the spy on oltFlowService
         reset(component.oltFlowService);
-        component.discoveredSubscribersQueue.clear();
+        component.eventsQueue.clear();
 
         component.activate();
     }
@@ -103,7 +103,7 @@ public class OltTest extends OltTestHelpers {
                 eq(DEFAULT_BP_ID_DEFAULT));
 
         // adding the discovered subscriber to the queue
-        component.discoveredSubscribersQueue.add(sub);
+        component.eventsQueue.add(sub);
 
         // check that we're calling the correct method
         TimeUnit.SECONDS.sleep(1);
@@ -111,7 +111,7 @@ public class OltTest extends OltTestHelpers {
                 eq(DEFAULT_BP_ID_DEFAULT));
 
         // check if the method doesn't throw an exception we're removing the subscriber from the queue
-        assert component.discoveredSubscribersQueue.isEmpty();
+        assert component.eventsQueue.isEmpty();
     }
 
     @Test
@@ -121,11 +121,11 @@ public class OltTest extends OltTestHelpers {
         doReturn(false).when(component.oltFlowService).handleBasicPortFlows(any(), eq(DEFAULT_BP_ID_DEFAULT),
                 eq(DEFAULT_BP_ID_DEFAULT));
         // replace the queue with a spy
-        BlockingQueue<DiscoveredSubscriber> spiedQueue = spy(component.discoveredSubscribersQueue);
-        component.discoveredSubscribersQueue = spiedQueue;
+        BlockingQueue<DiscoveredSubscriber> spiedQueue = spy(component.eventsQueue);
+        component.eventsQueue = spiedQueue;
 
         // adding the discovered subscriber to the queue
-        component.discoveredSubscribersQueue.add(sub);
+        component.eventsQueue.add(sub);
         TimeUnit.MILLISECONDS.sleep(100);
 
         // check that we're calling the correct method,
@@ -134,7 +134,7 @@ public class OltTest extends OltTestHelpers {
                 eq(DEFAULT_BP_ID_DEFAULT));
 
         // check if the method throws an exception we are adding the subscriber back in the queue
-        verify(component.discoveredSubscribersQueue, atLeast(2)).add(sub);
+        verify(component.eventsQueue, atLeast(2)).add(sub);
     }
 
 }

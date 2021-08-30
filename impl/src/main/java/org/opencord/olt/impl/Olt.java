@@ -110,7 +110,7 @@ public class Olt implements OltService {
     /**
      * A queue to asynchronously process events.
      */
-    protected BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue =
+    protected BlockingQueue<DiscoveredSubscriber> eventsQueue =
             new LinkedBlockingQueue<>();
 
     /**
@@ -132,7 +132,7 @@ public class Olt implements OltService {
         cfgService.registerProperties(getClass());
         deviceListener = new OltDeviceListener(clusterService, mastershipService,
                 leadershipService, deviceService, oltDeviceService, oltFlowService,
-                oltMeterService, discoveredSubscribersQueue);
+                oltMeterService, eventsQueue);
         deviceService.addListener(deviceListener);
         discoveredSubscriberExecutor.execute(this::processDiscoveredSubscribers);
 
@@ -172,8 +172,8 @@ public class Olt implements OltService {
     private void processDiscoveredSubscribers() {
         log.info("Started processDiscoveredSubscribers loop");
         while (true) {
-            if (!discoveredSubscribersQueue.isEmpty()) {
-                DiscoveredSubscriber sub = discoveredSubscribersQueue.poll();
+            if (!eventsQueue.isEmpty()) {
+                DiscoveredSubscriber sub = eventsQueue.poll();
                 if (sub == null) {
                     // the queue is empty
                     continue;
@@ -183,7 +183,7 @@ public class Olt implements OltService {
                             sub.device.id(), sub.port.number(), sub.status);
                 }
 
-                if (sub.provisionSubscriber) {
+                if (sub.hasSubscriber) {
                     // this is a provision subscriber call
                     flowsExecutor.execute(() -> {
                         if (!oltFlowService.handleSubscriberFlows(sub, defaultBpId)) {
@@ -191,7 +191,7 @@ public class Olt implements OltService {
                                 log.trace("Provisioning of subscriber on {}/{} ({}) postponed",
                                         sub.device.id(), sub.port.number(), sub.portName());
                             }
-                            discoveredSubscribersQueue.add(sub);
+                            eventsQueue.add(sub);
                         }
                     });
                 } else {
@@ -214,7 +214,7 @@ public class Olt implements OltService {
                                 log.trace("Processing of port {}/{} postponed",
                                         sub.device.id(), sub.port.number());
                             }
-                            discoveredSubscribersQueue.add(sub);
+                            eventsQueue.add(sub);
                         }
                     });
                 }
@@ -241,10 +241,10 @@ public class Olt implements OltService {
         }
 
         oltFlowService.updateProvisionedSubscriberStatus(cp, true);
-        if (!discoveredSubscribersQueue.contains(sub)) {
+        if (!eventsQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for provisioning",
                     sub.device.id(), sub.port.number(), sub.status);
-            discoveredSubscribersQueue.add(sub);
+            eventsQueue.add(sub);
             return true;
         } else {
             return false;
@@ -264,10 +264,10 @@ public class Olt implements OltService {
         }
 
         oltFlowService.updateProvisionedSubscriberStatus(cp, false);
-        if (!discoveredSubscribersQueue.contains(sub)) {
+        if (!eventsQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for removal",
                     sub.device.id(), sub.port.number(), sub.status);
-            discoveredSubscribersQueue.add(sub);
+            eventsQueue.add(sub);
             return true;
         } else {
             return false;

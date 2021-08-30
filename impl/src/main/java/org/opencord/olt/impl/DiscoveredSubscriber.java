@@ -14,13 +14,13 @@ public class DiscoveredSubscriber {
     public Port port;
     public Device device;
     public Enum<Status> status;
-    public boolean provisionSubscriber;
+    public boolean hasSubscriber;
 
-    public DiscoveredSubscriber(Device device, Port port, Status status, boolean provisionSubscriber) {
+    public DiscoveredSubscriber(Device device, Port port, Status status, boolean hasSubscriber) {
         this.device = device;
         this.port = port;
         this.status = status;
-        this.provisionSubscriber = provisionSubscriber;
+        this.hasSubscriber = hasSubscriber;
     }
 
     public String portName() {
@@ -34,7 +34,7 @@ public class DiscoveredSubscriber {
                 this.device.id().toString(),
                 this.port.number().toString(),
                 this.status.toString(),
-                this.provisionSubscriber
+                this.hasSubscriber
         );
     }
 }
