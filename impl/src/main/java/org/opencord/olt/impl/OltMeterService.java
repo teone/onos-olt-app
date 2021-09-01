@@ -15,6 +15,7 @@ import org.onosproject.net.meter.MeterContext;
 import org.onosproject.net.meter.MeterEvent;
 import org.onosproject.net.meter.MeterFailReason;
 import org.onosproject.net.meter.MeterId;
+import org.onosproject.net.meter.MeterKey;
 import org.onosproject.net.meter.MeterListener;
 import org.onosproject.net.meter.MeterRequest;
 import org.onosproject.net.meter.MeterService;
@@ -50,6 +51,7 @@ import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.locks.Lock;
 import java.util.concurrent.locks.ReentrantReadWriteLock;
@@ -81,6 +83,9 @@ public class OltMeterService implements OltMeterServiceInterface {
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile MeterService meterService;
 
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected OltDeviceServiceInterface oltDeviceService;
+
     private final Logger log = getLogger(getClass());
     protected BaseInformationService<BandwidthProfileInformation> bpService;
     private ApplicationId appId;
@@ -107,6 +112,14 @@ public class OltMeterService implements OltMeterServiceInterface {
                     "pending-removal-meters-%d", log));
 
     /**
+     * Map that contains a list of meters that needs to be removed.
+     * We wait to get 3 METER_REFERENCE_COUNT_ZERO events before removing the meter
+     * so that we're sure no flow is referencing it.
+     */
+    protected Map<DeviceId, Map<MeterKey, AtomicInteger>> pendingRemoveMeters;
+    protected int removeMeterEventNeeded = 3;
+
+    /**
      * Delete meters when reference count drops to zero.
      */
     protected boolean deleteMeters = DELETE_METERS_DEFAULT;
@@ -120,6 +133,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                 .register(List.class)
                 .register(MeterData.class)
                 .register(MeterState.class)
+                .register(MeterKey.class)
                 .build();
 
         programmedMeters = storageService.<DeviceId, List<MeterData>>consistentMapBuilder()
@@ -128,6 +142,11 @@ public class OltMeterService implements OltMeterServiceInterface {
                 .withApplicationId(appId)
                 .build().asJavaMap();
 
+        pendingRemoveMeters = storageService.<DeviceId, Map<MeterKey, AtomicInteger>>consistentMapBuilder()
+                .withName("volt-pending-remove-meters")
+                .withSerializer(Serializer.using(serializer))
+                .withApplicationId(appId)
+                .build().asJavaMap();
 
         cfgService.registerProperties(getClass());
 
@@ -299,6 +318,10 @@ public class OltMeterService implements OltMeterServiceInterface {
         } finally {
             programmedMeterWriteLock.unlock();
         }
+
+        // and clear the event count
+        // NOTE do we need a lock?
+        pendingRemoveMeters.remove(deviceId);
     }
 
     /**
@@ -515,11 +538,25 @@ public class OltMeterService implements OltMeterServiceInterface {
         @Override
         public void event(MeterEvent meterEvent) {
             pendingRemovalMetersExecutor.execute(() -> {
+
+                Meter meter = meterEvent.subject();
+                if (!appId.equals(meter.appId())) {
+                    return;
+                }
+
+                if (!oltDeviceService.isLocalLeader(meterEvent.subject().deviceId())) {
+                    if (log.isTraceEnabled()) {
+                        log.trace("ignoring meter event as not leader");
+                    }
+                    return;
+                }
+
                 log.debug("Received meter event {}", meterEvent);
+                MeterKey key = MeterKey.key(meter.deviceId(), meter.id());
                 if (meterEvent.type().equals(MeterEvent.Type.METER_REFERENCE_COUNT_ZERO)) {
-                    // NOTE looks like we're not receiving this event
-                    Meter meter = meterEvent.subject();
-                    if (appId.equals(meter.appId())) {
+                    incrementMeterCount(meter.deviceId(), key);
+                    if (pendingRemoveMeters.get(meter.deviceId())
+                            .get(key).get() == removeMeterEventNeeded) {
                         // only delete the meters if the app is configured to do so
                         if (deleteMeters) {
                             log.info("Meter {} on device {} is unused, removing it", meter.id(), meter.deviceId());
@@ -527,7 +564,42 @@ public class OltMeterService implements OltMeterServiceInterface {
                         }
                     }
                 }
+
+                if (meterEvent.type().equals(MeterEvent.Type.METER_REMOVED)) {
+                    removeMeterCount(meter, key);
+                }
             });
+        }
+
+        private void removeMeterCount(Meter meter, MeterKey key) {
+            pendingRemoveMeters.computeIfPresent(meter.deviceId(),
+                    (id, meters) -> {
+                        if (meters.get(key) == null) {
+                            log.info("Meters is not pending " +
+                                    "{} on {}", key, id);
+                            return meters;
+                        }
+                        meters.remove(key);
+                        return meters;
+                    });
+        }
+
+        private void incrementMeterCount(DeviceId deviceId, MeterKey key) {
+            if (key == null) {
+                return;
+            }
+            pendingRemoveMeters.compute(deviceId,
+                    (id, meters) -> {
+                        if (meters == null) {
+                            meters = new HashMap<>();
+
+                        }
+                        if (meters.get(key) == null) {
+                            meters.put(key, new AtomicInteger(1));
+                        }
+                        meters.get(key).addAndGet(1);
+                        return meters;
+                    });
         }
     }
 

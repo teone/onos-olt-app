@@ -75,6 +75,7 @@ public class OltDeviceListener implements DeviceListener {
      * @return boolean (true if the current instance is managing the device)
      */
     protected boolean isLocalLeader(DeviceId deviceId) {
+        // FIXME import OltDeviceService and use the method in there
         if (deviceService.isAvailable(deviceId)) {
             return mastershipService.isLocalMaster(deviceId);
         } else {

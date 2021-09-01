@@ -1,6 +1,11 @@
 package org.opencord.olt.impl;
 
+import org.onosproject.cluster.ClusterService;
+import org.onosproject.cluster.LeadershipService;
+import org.onosproject.cluster.NodeId;
+import org.onosproject.mastership.MastershipService;
 import org.onosproject.net.Device;
+import org.onosproject.net.DeviceId;
 import org.onosproject.net.Port;
 import org.onosproject.net.device.DeviceService;
 import org.opencord.sadis.BandwidthProfileInformation;
@@ -29,6 +34,15 @@ public class OltDeviceService implements OltDeviceServiceInterface {
 
     @Reference(cardinality = ReferenceCardinality.MANDATORY)
     protected volatile DeviceService deviceService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected volatile ClusterService clusterService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected volatile MastershipService mastershipService;
+
+    @Reference(cardinality = ReferenceCardinality.MANDATORY)
+    protected LeadershipService leadershipService;
 
     @Activate
     public void activate() {
@@ -102,5 +116,29 @@ public class OltDeviceService implements OltDeviceServiceInterface {
         this.bpService = null;
         this.subsService = null;
         log.info("Sadis service is unloaded");
+    }
+
+    /**
+     * Checks for mastership or falls back to leadership on deviceId.
+     * If the device is available use mastership,
+     * otherwise fallback on leadership.
+     * Leadership on the device topic is needed because the master can be NONE
+     * in case the device went away, we still need to handle events
+     * consistently
+     *
+     * @param deviceId The device ID to check.
+     * @return boolean (true if the current instance is managing the device)
+     */
+    @Override
+    public boolean isLocalLeader(DeviceId deviceId) {
+        if (deviceService.isAvailable(deviceId)) {
+            return mastershipService.isLocalMaster(deviceId);
+        } else {
+            // Fallback with Leadership service - device id is used as topic
+            NodeId leader = leadershipService.runForLeadership(
+                    deviceId.toString()).leaderNodeId();
+            // Verify if this node is the leader
+            return clusterService.getLocalNode().id().equals(leader);
+        }
     }
 }
