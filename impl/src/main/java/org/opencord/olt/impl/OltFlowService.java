@@ -222,7 +222,17 @@ public class OltFlowService implements OltFlowServiceInterface {
         UPSTREAM,
         DOWNSTREAM,
     }
-    InternalFlowListener internalFlowListener = new InternalFlowListener();
+
+    public enum OltFlowsStatus {
+        NONE,
+        PENDING_ADD,
+        ADDED,
+        PENDING_REMOVE,
+        REMOVED,
+        ERROR
+    }
+
+    private InternalFlowListener internalFlowListener = new InternalFlowListener();
 
     @Activate
     public void activate() {
@@ -237,6 +247,9 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         KryoNamespace serializer = KryoNamespace.newBuilder()
                 .register(KryoNamespaces.API)
+                .register(OltFlowsStatus.class)
+                .register(FlowDirection.class)
+                .register(FlowAction.class)
                 .register(OltPortStatus.class)
                 .build();
 
@@ -499,7 +512,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             return true;
         }
 
-        // NOTE createMeters will throw if the meters are not ready
+        // NOTE createMeters will return if the meters are not installed
         if (!oltMeterService.createMeters(sub.device.id(), si)) {
             return false;
         }
@@ -517,9 +530,6 @@ public class OltFlowService implements OltFlowServiceInterface {
         handleSubscriberDataFlows(sub.device, sub.port, FlowAction.ADD, si);
 
         handleSubscriberEapolFlows(sub, FlowAction.ADD, si);
-
-        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
-
 
         log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
@@ -562,8 +572,6 @@ public class OltFlowService implements OltFlowServiceInterface {
             }
             handleSubscriberDataFlows(sub.device, sub.port, FlowAction.REMOVE, si);
         }
-
-        ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
 
         log.info("Removal of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
@@ -780,10 +788,9 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
         // TODO verify we need an EAPOL flow for EACH service
         si.uniTagList().forEach(u -> {
-            try {
-                handleEapolFlow(sub, u.getUpstreamBandwidthProfile(), u.getUpstreamOltBandwidthProfile(),
-                        action, u.getPonCTag());
-            } catch (Exception e) {
+            if (!handleEapolFlow(sub, u.getUpstreamBandwidthProfile(),
+                                u.getUpstreamOltBandwidthProfile(),
+                        action, u.getPonCTag())) {
                 log.error("Failed to install EAPOL with suscriber tags");
             }
         });
@@ -1373,15 +1380,6 @@ public class OltFlowService implements OltFlowServiceInterface {
         } finally {
             cpStatusWriteLock.unlock();
         }
-    }
-
-    public enum OltFlowsStatus {
-        NONE,
-        PENDING_ADD,
-        ADDED,
-        PENDING_REMOVE,
-        REMOVED,
-        ERROR
     }
 
     public static class OltPortStatus {

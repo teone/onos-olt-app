@@ -9,6 +9,7 @@ import org.onosproject.core.CoreServiceAdapter;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.meter.MeterServiceAdapter;
+import org.onosproject.net.meter.MeterState;
 import org.onosproject.store.service.StorageServiceAdapter;
 import org.onosproject.store.service.TestStorageService;
 import org.opencord.sadis.SadisService;
@@ -49,11 +50,11 @@ public class OltMeterServiceTest extends OltTestHelpers {
         DeviceId deviceId = DeviceId.deviceId("foo");
 
         // FIXME how do we create a MeterCellId?
-        OltMeterService.MeterData meterPending = new OltMeterService.MeterData(MeterId.meterId(1), null,
-                OltMeterService.MeterStatus.PENDING_ADD, "pending");
-        OltMeterService.MeterData meterAdded = new OltMeterService.MeterData(MeterId.meterId(2), null,
-                OltMeterService.MeterStatus.ADDED, DEFAULT_BP_ID_DEFAULT);
-        List<OltMeterService.MeterData> meters = new LinkedList<>();
+        MeterData meterPending = new MeterData(MeterId.meterId(1), null,
+                                               MeterState.PENDING_ADD, "pending");
+        MeterData meterAdded = new MeterData(MeterId.meterId(2), null,
+                                             MeterState.ADDED, DEFAULT_BP_ID_DEFAULT);
+        List<MeterData> meters = new LinkedList<>();
         meters.add(meterPending);
         meters.add(meterAdded);
         oltMeterService.programmedMeters.put(deviceId, meters);
@@ -68,11 +69,11 @@ public class OltMeterServiceTest extends OltTestHelpers {
     @Test
     public void testGetMeterId() {
         DeviceId deviceId = DeviceId.deviceId("foo");
-        OltMeterService.MeterData meterPending = new OltMeterService.MeterData(MeterId.meterId(1), null,
-                OltMeterService.MeterStatus.PENDING_ADD, "pending");
-        OltMeterService.MeterData meterAdded = new OltMeterService.MeterData(MeterId.meterId(2), null,
-                OltMeterService.MeterStatus.ADDED, DEFAULT_BP_ID_DEFAULT);
-        List<OltMeterService.MeterData> meters = new LinkedList<>();
+        MeterData meterPending = new MeterData(MeterId.meterId(1), null,
+                                               MeterState.PENDING_ADD, "pending");
+        MeterData meterAdded = new MeterData(MeterId.meterId(2), null,
+                                             MeterState.ADDED, DEFAULT_BP_ID_DEFAULT);
+        List<MeterData> meters = new LinkedList<>();
         meters.add(meterPending);
         meters.add(meterAdded);
         oltMeterService.programmedMeters.put(deviceId, meters);
