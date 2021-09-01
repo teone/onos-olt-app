@@ -50,10 +50,7 @@ import java.util.concurrent.ScheduledExecutorService;
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static org.onlab.util.Tools.get;
 import static org.onlab.util.Tools.groupedThreads;
-import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID;
-import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
-import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_MCAST_SERVICE_NAME;
-import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_MCAST_SERVICE_NAME_DEFAULT;
+import static org.opencord.olt.impl.OsgiPropertyConstants.*;
 
 /**
  * OLT Application.
@@ -62,6 +59,7 @@ import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_MCAST_SERVICE_
         property = {
                 DEFAULT_BP_ID + ":String=" + DEFAULT_BP_ID_DEFAULT,
                 DEFAULT_MCAST_SERVICE_NAME + ":String=" + DEFAULT_MCAST_SERVICE_NAME_DEFAULT,
+                FLOW_PROCESSING_THREADS + ":Integer=" + FLOW_PROCESSING_THREADS_DEFAULT,
         })
 public class Olt implements OltService {
 
@@ -101,6 +99,11 @@ public class Olt implements OltService {
     protected String defaultBpId = DEFAULT_BP_ID_DEFAULT;
 
     /**
+     * Number of threads used to process flows.
+     **/
+    protected int flowProcessingThreads = FLOW_PROCESSING_THREADS_DEFAULT;
+
+    /**
      * Default multicast service name.
      **/
     protected String multicastServiceName = DEFAULT_MCAST_SERVICE_NAME_DEFAULT;
@@ -136,8 +139,8 @@ public class Olt implements OltService {
         deviceService.addListener(deviceListener);
         discoveredSubscriberExecutor.execute(this::processDiscoveredSubscribers);
 
-        flowsExecutor = Executors.newFixedThreadPool(flowsTreads,
-                groupedThreads("onos/olt-service",
+        flowsExecutor = Executors.newFixedThreadPool(flowProcessingThreads,
+                                                     groupedThreads("onos/olt-service",
                         "flows-installer-%d"));
 
         log.info("Started");
@@ -163,68 +166,20 @@ public class Olt implements OltService {
             String mcastSN = get(properties, DEFAULT_MCAST_SERVICE_NAME);
             multicastServiceName = isNullOrEmpty(mcastSN) ? multicastServiceName : mcastSN;
 
-            log.debug("OLT properties: DefaultBpId: {}, MulticastServiceName: {}",
-                    defaultBpId, multicastServiceName);
+            String tpId = get(properties, FLOW_PROCESSING_THREADS);
+            flowProcessingThreads = isNullOrEmpty(tpId) ?
+                    FLOW_PROCESSING_THREADS_DEFAULT : Integer.parseInt(tpId.trim());
+
+            log.debug("OLT properties: DefaultBpId: {}, MulticastServiceName: {}, flowProcessingThreads: {}",
+                    defaultBpId, multicastServiceName, flowProcessingThreads);
         }
         log.info("Reconfigured");
-    }
-
-    private void processDiscoveredSubscribers() {
-        log.info("Started processDiscoveredSubscribers loop");
-        while (true) {
-            if (!eventsQueue.isEmpty()) {
-                DiscoveredSubscriber sub = eventsQueue.poll();
-                if (sub == null) {
-                    // the queue is empty
-                    continue;
-                }
-                if (log.isTraceEnabled()) {
-                    log.debug("Processing subscriber on port {}/{} with status {}",
-                            sub.device.id(), sub.port.number(), sub.status);
-                }
-
-                if (sub.hasSubscriber) {
-                    // this is a provision subscriber call
-                    flowsExecutor.execute(() -> {
-                        if (!oltFlowService.handleSubscriberFlows(sub, defaultBpId)) {
-                            if (log.isTraceEnabled()) {
-                                log.trace("Provisioning of subscriber on {}/{} ({}) postponed",
-                                        sub.device.id(), sub.port.number(), sub.portName());
-                            }
-                            eventsQueue.add(sub);
-                        }
-                    });
-                } else {
-                    // this is a port event (ENABLED/DISABLED)
-                    // means no subscriber was provisioned on that port
-
-
-                    if (!deviceService.isAvailable(sub.device.id()) ||
-                            deviceService.getPort(sub.device.id(), sub.port.number()) == null) {
-                        // If the device is not connected or the port is not available do nothig
-                        // This can happen when we disable and then immediately delete the device,
-                        // the queue is populated but the meters and flows are already gone
-                        // thus there is nothing left to do
-                        continue;
-                    }
-
-                    flowsExecutor.execute(() -> {
-                        if (!oltFlowService.handleBasicPortFlows(sub, defaultBpId, defaultBpId)) {
-                            if (log.isTraceEnabled()) {
-                                log.trace("Processing of port {}/{} postponed",
-                                        sub.device.id(), sub.port.number());
-                            }
-                            eventsQueue.add(sub);
-                        }
-                    });
-                }
-            }
-        }
     }
 
 
     @Override
     public boolean provisionSubscriber(ConnectPoint cp) {
+        log.debug("Provisioning subscriber on {}", cp);
         Device device = deviceService.getDevice(DeviceId.deviceId(cp.deviceId().toString()));
         Port port = deviceStore.getPort(device.id(), cp.port());
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
@@ -247,12 +202,15 @@ public class Olt implements OltService {
             eventsQueue.add(sub);
             return true;
         } else {
+            log.debug("Subscriber queue already contains subscriber {}, " +
+                              "not adding for provisioning", sub);
             return false;
         }
     }
 
     @Override
     public boolean removeSubscriber(ConnectPoint cp) {
+        log.debug("Un-provisioning subscriber on {}", cp);
         Device device = deviceService.getDevice(DeviceId.deviceId(cp.deviceId().toString()));
         Port port = deviceStore.getPort(device.id(), cp.port());
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
@@ -270,6 +228,8 @@ public class Olt implements OltService {
             eventsQueue.add(sub);
             return true;
         } else {
+            log.debug("Subscriber Queue already contains subscriber {}, " +
+                              "not adding for removal", sub);
             return false;
         }
     }
@@ -285,6 +245,59 @@ public class Olt implements OltService {
             }
         }
         return olts;
+    }
+
+    private void processDiscoveredSubscribers() {
+        log.info("Started processDiscoveredSubscribers loop");
+        while (true) {
+            if (!eventsQueue.isEmpty()) {
+                DiscoveredSubscriber sub = eventsQueue.poll();
+                if (sub == null) {
+                    // the queue is empty
+                    continue;
+                }
+                if (log.isTraceEnabled()) {
+                    log.debug("Processing subscriber on port {}/{} with status {}",
+                              sub.device.id(), sub.port.number(), sub.status);
+                }
+
+                if (sub.hasSubscriber) {
+                    // this is a provision subscriber call
+                    flowsExecutor.execute(() -> {
+                        if (!oltFlowService.handleSubscriberFlows(sub, defaultBpId)) {
+                            if (log.isTraceEnabled()) {
+                                log.trace("Provisioning of subscriber on {}/{} ({}) postponed",
+                                          sub.device.id(), sub.port.number(), sub.portName());
+                            }
+                            eventsQueue.add(sub);
+                        }
+                    });
+                } else {
+                    // this is a port event (ENABLED/DISABLED)
+                    // means no subscriber was provisioned on that port
+
+
+                    if (!deviceService.isAvailable(sub.device.id()) ||
+                            deviceService.getPort(sub.device.id(), sub.port.number()) == null) {
+                        // If the device is not connected or the port is not available do nothig
+                        // This can happen when we disable and then immediately delete the device,
+                        // the queue is populated but the meters and flows are already gone
+                        // thus there is nothing left to do
+                        continue;
+                    }
+
+                    flowsExecutor.execute(() -> {
+                        if (!oltFlowService.handleBasicPortFlows(sub, defaultBpId, defaultBpId)) {
+                            if (log.isTraceEnabled()) {
+                                log.trace("Processing of port {}/{} postponed",
+                                          sub.device.id(), sub.port.number());
+                            }
+                            eventsQueue.add(sub);
+                        }
+                    });
+                }
+            }
+        }
     }
 
 }

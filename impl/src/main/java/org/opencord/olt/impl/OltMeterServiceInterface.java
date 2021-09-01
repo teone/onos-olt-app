@@ -35,5 +35,5 @@ public interface OltMeterServiceInterface {
 
     void purgeDeviceMeters(DeviceId deviceId);
 
-    Map<DeviceId, List<OltMeterService.MeterData>> getProgrammedMeters();
+    Map<DeviceId, List<MeterData>> getProgrammedMeters();
 }

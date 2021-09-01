@@ -11,7 +11,6 @@ import org.onosproject.net.meter.Band;
 import org.onosproject.net.meter.DefaultBand;
 import org.onosproject.net.meter.DefaultMeterRequest;
 import org.onosproject.net.meter.Meter;
-import org.onosproject.net.meter.MeterCellId;
 import org.onosproject.net.meter.MeterContext;
 import org.onosproject.net.meter.MeterEvent;
 import org.onosproject.net.meter.MeterFailReason;
@@ -19,6 +18,7 @@ import org.onosproject.net.meter.MeterId;
 import org.onosproject.net.meter.MeterListener;
 import org.onosproject.net.meter.MeterRequest;
 import org.onosproject.net.meter.MeterService;
+import org.onosproject.net.meter.MeterState;
 import org.onosproject.store.serializers.KryoNamespaces;
 import org.onosproject.store.service.Serializer;
 import org.onosproject.store.service.StorageService;
@@ -119,6 +119,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                 .register(KryoNamespaces.API)
                 .register(List.class)
                 .register(MeterData.class)
+                .register(MeterState.class)
                 .build();
 
         programmedMeters = storageService.<DeviceId, List<MeterData>>consistentMapBuilder()
@@ -243,7 +244,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                 return false;
             }
             return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile)
-                    && md.meterStatus.equals(MeterStatus.ADDED));
+                    && md.meterStatus.equals(MeterState.ADDED));
         } finally {
             programmedMeterReadLock.unlock();
         }
@@ -257,13 +258,13 @@ public class OltMeterService implements OltMeterServiceInterface {
                 return false;
             }
             return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile)
-                    && md.meterStatus.equals(MeterStatus.PENDING_ADD));
+                    && md.meterStatus.equals(MeterState.PENDING_ADD));
         } finally {
             programmedMeterReadLock.unlock();
         }
     }
 
-    public MeterId getMeterIdForBandwidthProfile(DeviceId deviceId, String bpId) {
+    public MeterId getMeterIdForBandwidthProfile(DeviceId deviceId, String bandwidthProfile) {
         try {
             programmedMeterReadLock.lock();
             List<MeterData> metersOnDevice = programmedMeters.get(deviceId);
@@ -271,11 +272,12 @@ public class OltMeterService implements OltMeterServiceInterface {
                 return null;
             }
             MeterData meter = metersOnDevice.stream().
-                    filter(md -> md.bandwidthProfile.equals(bpId) && md.meterStatus.equals(MeterStatus.ADDED))
+                    filter(md -> md.bandwidthProfile.equals(bandwidthProfile)
+                            && md.meterStatus.equals(MeterState.ADDED))
                     .findFirst().orElse(null);
             if (meter != null) {
                 log.debug("Found meter {} on device {} for bandwidth profile {}",
-                        meter.meterId, deviceId, bpId);
+                        meter.meterId, deviceId, bandwidthProfile);
                 return meter.meterId;
             }
             return null;
@@ -302,12 +304,12 @@ public class OltMeterService implements OltMeterServiceInterface {
      * Schedules the creation of a meter for a given Bandwidth Profile on a given device.
      *
      * @param deviceId the DeviceId
-     * @param bpId     the BandwidthProfile ID
+     * @param bandwidthProfile     the BandwidthProfile ID
      */
-    public void createMeterForBp(DeviceId deviceId, String bpId) {
-        BandwidthProfileInformation bpInfo = getBandwidthProfileInformation(bpId);
+    public void createMeterForBp(DeviceId deviceId, String bandwidthProfile) {
+        BandwidthProfileInformation bpInfo = getBandwidthProfileInformation(bandwidthProfile);
         if (bpInfo == null) {
-            log.error("BandwidthProfile {} information not found in sadis", bpId);
+            log.error("BandwidthProfile {} information not found in sadis", bandwidthProfile);
             return;
         }
 
@@ -324,14 +326,14 @@ public class OltMeterService implements OltMeterServiceInterface {
                     @Override
                     public void onSuccess(MeterRequest op) {
                         log.info("Meter for {} is installed on the device {}: {}",
-                                bpId, deviceId, op);
+                                 bandwidthProfile, deviceId, op);
                         meterFuture.complete(null);
                     }
 
                     @Override
                     public void onError(MeterRequest op, MeterFailReason reason) {
                         log.error("Failed installing meter on {} for {}",
-                                deviceId, bpId);
+                                deviceId, bandwidthProfile);
                         meterFuture.complete(reason);
                     }
                 })
@@ -345,7 +347,7 @@ public class OltMeterService implements OltMeterServiceInterface {
         OltMeterRequest request = new OltMeterRequest(
                 meterRequest,
                 deviceId,
-                bpId,
+                bandwidthProfile,
                 meterIdRef
         );
 
@@ -361,7 +363,7 @@ public class OltMeterService implements OltMeterServiceInterface {
             MeterData meterData = new MeterData(
                     null, // the meter is not yet created
                     null,
-                    MeterStatus.PENDING_ADD,
+                    MeterState.PENDING_ADD,
                     request.bandwidthProfile
             );
             metersOnDevice.add(meterData);
@@ -370,7 +372,7 @@ public class OltMeterService implements OltMeterServiceInterface {
 
             // enqueue the request
             pendingMeters.add(request);
-            log.debug("Added meter for {} to queue", bpId);
+            log.debug("Added meter for {} to queue", bandwidthProfile);
 
             // once the request is enqueued wait for it to complete
             // so that we can store the meterId
@@ -392,7 +394,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                     int idx = -1;
                     int curPos = 0;
                     for (MeterData md : existingMeters) {
-                        if (md.meterStatus.equals(MeterStatus.PENDING_ADD) &&
+                        if (md.meterStatus.equals(MeterState.PENDING_ADD) &&
                                 md.bandwidthProfile.equals(request.bandwidthProfile)) {
                             idx = curPos;
                             break;
@@ -403,7 +405,7 @@ public class OltMeterService implements OltMeterServiceInterface {
                     MeterData paMeter = existingMeters.get(idx);
                     paMeter.meterId = request.meterIdRef.get();
 //                    paMeter.meterCellId = meter.meterCellId(); // NOTE do we need the meterCellId??
-                    paMeter.meterStatus = MeterStatus.ADDED;
+                    paMeter.meterStatus = MeterState.ADDED;
 
                     existingMeters.set(idx, paMeter);
                     programmedMeters.put(request.deviceId, existingMeters);
@@ -556,47 +558,4 @@ public class OltMeterService implements OltMeterServiceInterface {
         }
     }
 
-    public enum MeterStatus {
-        PENDING_ADD,
-        ADDED,
-    }
-
-    protected static class OltMeterRequest {
-        public MeterRequest meterRequest;
-        public DeviceId deviceId;
-        public String bandwidthProfile;
-        public AtomicReference<MeterId> meterIdRef;
-
-        public OltMeterRequest(MeterRequest meterRequest, DeviceId deviceId,
-                               String bandwidthProfile, AtomicReference<MeterId> meterIdRef) {
-            this.meterRequest = meterRequest;
-            this.deviceId = deviceId;
-            this.bandwidthProfile = bandwidthProfile;
-            this.meterIdRef = meterIdRef;
-        }
-    }
-
-    public static class MeterData {
-        public MeterId meterId;
-        public MeterCellId meterCellId;
-        public MeterStatus meterStatus;
-        public String bandwidthProfile;
-
-        public MeterData(MeterId meterId, MeterCellId meterCellId, MeterStatus meterStatus, String bandwidthProfile) {
-            this.meterId = meterId;
-            this.meterCellId = meterCellId;
-            this.meterStatus = meterStatus;
-            this.bandwidthProfile = bandwidthProfile;
-        }
-
-        @Override
-        public String toString() {
-            return "MeterData{" +
-                    "meterId=" + meterId +
-                    ", meterCellId=" + meterCellId +
-                    ", meterStatus=" + meterStatus +
-                    ", bandwidthProfile='" + bandwidthProfile + '\'' +
-                    '}';
-        }
-    }
 }
