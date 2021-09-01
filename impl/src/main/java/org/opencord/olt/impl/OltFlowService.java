@@ -69,6 +69,7 @@ import org.slf4j.LoggerFactory;
 import java.util.Dictionary;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.Iterator;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -250,7 +251,6 @@ public class OltFlowService implements OltFlowServiceInterface {
                 .register(KryoNamespaces.API)
                 .register(OltFlowsStatus.class)
                 .register(FlowDirection.class)
-                .register(FlowAction.class)
                 .register(OltPortStatus.class)
                 .register(OltFlowsStatus.class)
                 .build();
@@ -376,8 +376,6 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     @Override
     public Map<ConnectPoint, Boolean> getRequestedSusbcribers() {
-        Map<ConnectPoint, Boolean> subscribers =
-                new HashMap<>();
         try {
             provisionedSubscribersReadLock.lock();
             return ImmutableMap.copyOf(provisionedSubscribers);
@@ -651,7 +649,13 @@ public class OltFlowService implements OltFlowServiceInterface {
         // removing the status from the cpStatus map
         try {
             cpStatusWriteLock.lock();
-            cpStatus.entrySet().removeIf(i -> i.getKey().deviceId().equals(deviceId));
+            Iterator<Map.Entry<ConnectPoint, OltPortStatus>> iter = cpStatus.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<ConnectPoint, OltPortStatus> entry = iter.next();
+                if (entry.getKey().deviceId().equals(deviceId)) {
+                    cpStatus.remove(entry.getKey());
+                }
+            }
         } finally {
             cpStatusWriteLock.unlock();
         }
@@ -659,7 +663,14 @@ public class OltFlowService implements OltFlowServiceInterface {
         // removing subscribers from the provisioned map
         try {
             provisionedSubscribersWriteLock.lock();
-            provisionedSubscribers.entrySet().removeIf(i -> i.getKey().deviceId().equals(deviceId));
+            Iterator<Map.Entry<ConnectPoint, Boolean>> iter = provisionedSubscribers.entrySet().iterator();
+            while (iter.hasNext()) {
+                Map.Entry<ConnectPoint, Boolean> entry = iter.next();
+                if (entry.getKey().deviceId().equals(deviceId)) {
+                    log.info("TEO processing subscriber {} for removal for device {}", entry.getKey(), deviceId);
+                    provisionedSubscribers.remove(entry.getKey());
+                }
+            }
         } finally {
             provisionedSubscribersWriteLock.unlock();
         }
@@ -947,7 +958,8 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
 
         if (techProfileId != NONE_TP_ID) {
-            treatmentBuilder.writeMetadata(createTechProfValueForWriteMetadata(unitagMatch, techProfileId, oltMeterId), 0);
+            treatmentBuilder.writeMetadata(
+                    createTechProfValueForWriteMetadata(unitagMatch, techProfileId, oltMeterId), 0);
         }
 
         FilteringObjective.Builder dhcpBuilder = (action == FlowOperation.ADD ? builder.permit() : builder.deny())
@@ -1402,8 +1414,12 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         @Override
         public boolean equals(Object o) {
-            if (this == o) return true;
-            if (o == null || getClass() != o.getClass()) return false;
+            if (this == o) {
+                return true;
+            }
+            if (o == null || getClass() != o.getClass()) {
+                return false;
+            }
             OltPortStatus that = (OltPortStatus) o;
             return defaultEapolStatus == that.defaultEapolStatus
                     && subscriberFlowsStatus == that.subscriberFlowsStatus
@@ -1423,7 +1439,9 @@ public class OltFlowService implements OltFlowServiceInterface {
                 case RULE_ADDED:
                 case RULE_REMOVED:
                     ConnectPoint cp = getCpFromFlowRule(event.subject());
-                    log.info("TEO flow event {} on cp {}: {}", event.type(), cp, event.subject());
+                    if (log.isTraceEnabled()) {
+                        log.trace("flow event {} on cp {}: {}", event.type(), cp, event.subject());
+                    }
                     updateCpStatus(event.type(), cp, event.subject());
                 case RULE_ADD_REQUESTED:
                 case RULE_REMOVE_REQUESTED:
@@ -1437,13 +1455,13 @@ public class OltFlowService implements OltFlowServiceInterface {
         private void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
             OltFlowsStatus status = flowRuleStatusToOltFlowStatus(type);
             if (isDefaultEapolFlow(flowRule)) {
-                log.info("TEO update defaultEapolStatus {}", status);
+                log.debug("update defaultEapolStatus {} on cp {}", status, cp);
                 updateConnectPointStatus(cp, status, null, null);
             } else if (isDhcpFlow(flowRule)) {
-                log.info("TEO update dhcpStatus {}", status);
+                log.debug("update dhcpStatus {} on cp {}", status, cp);
                 updateConnectPointStatus(cp, null, null, status);
             } else if (isDataFlow(flowRule)) {
-                log.info("TEO update dataplaneStatus {}", status);
+                log.debug("update dataplaneStatus {} on cp {}", status, cp);
                 updateConnectPointStatus(cp, null, status, null);
             }
         }
