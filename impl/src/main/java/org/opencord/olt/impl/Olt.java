@@ -180,7 +180,7 @@ public class Olt implements OltService {
     @Override
     public boolean provisionSubscriber(ConnectPoint cp) {
         log.debug("Provisioning subscriber on {}", cp);
-        Device device = deviceService.getDevice(DeviceId.deviceId(cp.deviceId().toString()));
+        Device device = deviceService.getDevice(cp.deviceId());
         Port port = deviceStore.getPort(device.id(), cp.port());
         DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                 DiscoveredSubscriber.Status.ADDED, true);
@@ -195,7 +195,10 @@ public class Olt implements OltService {
             return false;
         }
 
+        // NOTE we need to keep a list of the subscribers that are provisioned on a port,
+        // regardless of the flow status
         oltFlowService.updateProvisionedSubscriberStatus(cp, true);
+
         if (!eventsQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for provisioning",
                     sub.device.id(), sub.port.number(), sub.status);
@@ -221,7 +224,10 @@ public class Olt implements OltService {
             return false;
         }
 
+        // NOTE we need to keep a list of the subscribers that are provisioned on a port,
+        // regardless of the flow status
         oltFlowService.updateProvisionedSubscriberStatus(cp, false);
+
         if (!eventsQueue.contains(sub)) {
             log.info("Adding subscriber to queue: {}/{} with status {} for removal",
                     sub.device.id(), sub.port.number(), sub.status);
@@ -235,7 +241,7 @@ public class Olt implements OltService {
     }
 
     @Override
-    public List<DeviceId> fetchOlts() {
+    public List<DeviceId> getConnectedOlts() {
         List<DeviceId> olts = new ArrayList<>();
         Iterable<Device> devices = deviceService.getDevices();
         for (Device d : devices) {

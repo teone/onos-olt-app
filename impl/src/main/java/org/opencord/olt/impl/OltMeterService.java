@@ -157,6 +157,7 @@ public class OltMeterService implements OltMeterServiceInterface {
         meterService.removeListener(meterListener);
     }
 
+    @Override
     public Map<DeviceId, List<MeterData>> getProgrammedMeters() {
         try {
             programmedMeterReadLock.lock();
@@ -549,9 +550,9 @@ public class OltMeterService implements OltMeterServiceInterface {
             programmedMeterWriteLock.lock();
             List<MeterData> existingMeters = programmedMeters.get(deviceId);
 
-            List<MeterData> newMeters = existingMeters.stream().filter(md -> {
-                return md.meterId.equals(meterId);
-            }).collect(Collectors.toList());
+            List<MeterData> newMeters = existingMeters.stream()
+                    .filter(md -> md.meterId != null ? md.meterId.equals(meterId) : false)
+                    .collect(Collectors.toList());
             programmedMeters.put(deviceId, newMeters);
         } finally {
             programmedMeterWriteLock.unlock();

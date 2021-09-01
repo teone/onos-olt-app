@@ -145,10 +145,10 @@ public class OltDeviceListener implements DeviceListener {
             if (oltDeviceService.isNniPort(device, port)) {
                 // NOTE in the NNI case we receive a PORT_REMOVED event with status ENABLED, thus we need to
                 // pass the floeAction to the handleNniFlows method
-                OltFlowService.FlowAction action = port.isEnabled() ?
-                        OltFlowService.FlowAction.ADD : OltFlowService.FlowAction.REMOVE;
+                OltFlowService.FlowOperation action = port.isEnabled() ?
+                        OltFlowService.FlowOperation.ADD : OltFlowService.FlowOperation.REMOVE;
                 if (type == DeviceEvent.Type.PORT_REMOVED) {
-                    action = OltFlowService.FlowAction.REMOVE;
+                    action = OltFlowService.FlowOperation.REMOVE;
                 }
                 oltFlowService.handleNniFlows(device, port, action);
             } else {
@@ -166,7 +166,7 @@ public class OltDeviceListener implements DeviceListener {
         } else {
             if (oltDeviceService.isNniPort(device, port)) {
                 // NOTE this may need to be handled on DEVICE_REMOVE as we don't disable the NNI
-                oltFlowService.handleNniFlows(device, port, OltFlowService.FlowAction.REMOVE);
+                oltFlowService.handleNniFlows(device, port, OltFlowService.FlowOperation.REMOVE);
             } else {
                 // NOTE we are assuming that if a subscriber has default eapol
                 // it does not have subscriber flows

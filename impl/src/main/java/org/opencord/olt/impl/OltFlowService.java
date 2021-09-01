@@ -70,6 +70,7 @@ import java.util.Dictionary;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -213,7 +214,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     protected boolean waitForRemoval = WAIT_FOR_REMOVAL_DEFAULT;
 
-    public enum FlowAction {
+    public enum FlowOperation {
         ADD,
         REMOVE,
     }
@@ -251,6 +252,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                 .register(FlowDirection.class)
                 .register(FlowAction.class)
                 .register(OltPortStatus.class)
+                .register(OltFlowsStatus.class)
                 .build();
 
         cpStatus = storageService.<ConnectPoint, OltPortStatus>consistentMapBuilder()
@@ -385,7 +387,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
-    public void handleNniFlows(Device device, Port port, FlowAction action) {
+    public void handleNniFlows(Device device, Port port, FlowOperation action) {
 
         // always handle the LLDP flow
         processLldpFilteringObjective(device.id(), port, action);
@@ -453,14 +455,14 @@ public class OltFlowService implements OltFlowServiceInterface {
             return true;
         }
         return handleEapolFlow(sub, bandwidthProfile,
-                oltBandwidthProfile, FlowAction.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
+                oltBandwidthProfile, FlowOperation.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
 
     }
 
     private boolean removeDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile) {
         // NOTE that we are not checking for meters as they must have been created to install the flow in first place
         return handleEapolFlow(sub, bandwidthProfile, oltBandwidthProfile,
-                FlowAction.REMOVE, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
+                FlowOperation.REMOVE, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
     }
 
     @Override
@@ -518,7 +520,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
 
         // NOTE we need to add the DHCP flow regardless so that the host can be discovered and the MacAddress added
-        handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowAction.ADD, si);
+        handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowOperation.ADD, si);
 
         if (isMacLearningEnabled(si) && !isMacAddressAvailable(sub.device.id(), sub.port, si)) {
             log.debug("Awaiting for macAddress on {}/{} ({})",
@@ -527,9 +529,9 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
 
         // NOTE do we need to do anything for IGMP?
-        handleSubscriberDataFlows(sub.device, sub.port, FlowAction.ADD, si);
+        handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.ADD, si);
 
-        handleSubscriberEapolFlows(sub, FlowAction.ADD, si);
+        handleSubscriberEapolFlows(sub, FlowOperation.ADD, si);
 
         log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
@@ -551,26 +553,24 @@ public class OltFlowService implements OltFlowServiceInterface {
             return true;
         }
 
-        // NOTE why don't we simply remove all the flows on this port?
-
         if (hasDhcpFlows(sub.device.id(), sub.port.number())) {
-            handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowAction.REMOVE, si);
+            handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowOperation.REMOVE, si);
         }
 
         if (hasSubscriberFlows(sub.device.id(), sub.port.number())) {
             if (enableEapol) {
                 // remove the tagged eapol
-                handleSubscriberEapolFlows(sub, FlowAction.REMOVE, si);
+                handleSubscriberEapolFlows(sub, FlowOperation.REMOVE, si);
 
                 // and add the default one back
                 if (sub.port.isEnabled()) {
                     // NOTE we remove the subscriber when the port goes down
                     // but in that case we don't need to add default eapol
                     handleEapolFlow(sub, defaultBandwithProfile, defaultBandwithProfile,
-                            FlowAction.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
+                            FlowOperation.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
                 }
             }
-            handleSubscriberDataFlows(sub.device, sub.port, FlowAction.REMOVE, si);
+            handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.REMOVE, si);
         }
 
         log.info("Removal of subscriber on {}/{} ({}) completed",
@@ -690,11 +690,14 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private boolean handleEapolFlow(DiscoveredSubscriber sub, String bandwidthProfile,
-                                 String oltBandwidthProfile, FlowAction action, VlanId vlanId) {
+                                    String oltBandwidthProfile, FlowOperation action, VlanId vlanId) {
 
         ConnectPoint cp = new ConnectPoint(sub.device.id(), sub.port.number());
+
+        // NOTE we only need to keep track of the default EAPOL flow in the
+        // connectpoint status map
         if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
-            OltFlowsStatus status = action == FlowAction.ADD ?
+            OltFlowsStatus status = action == FlowOperation.ADD ?
                                 OltFlowsStatus.PENDING_ADD : OltFlowsStatus.PENDING_REMOVE;
             updateConnectPointStatus(cp, status, OltFlowsStatus.NONE, OltFlowsStatus.NONE);
 
@@ -726,9 +729,9 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         FilteringObjective.Builder eapolAction;
 
-        if (action == FlowAction.ADD) {
+        if (action == FlowOperation.ADD) {
             eapolAction = filterBuilder.permit();
-        } else if (action == FlowAction.REMOVE) {
+        } else if (action == FlowOperation.REMOVE) {
             eapolAction = filterBuilder.deny();
         } else {
             log.error("Operation {} not supported", action);
@@ -745,7 +748,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         TrafficTreatment treatment = treatmentBuilder
                 .meter(meterId)
-                .writeMetadata(createTechProfValueForWm(
+                .writeMetadata(createTechProfValueForWriteMetadata(
                         vlanId,
                         techProfileId, oltMeterId), 0)
                 .setOutput(PortNumber.CONTROLLER)
@@ -767,7 +770,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
                     @Override
                     public void onError(Objective objective, ObjectiveError error) {
-                        log.error("Cannot {} eapol flow: {}", action, error);
+                        log.error("Cannot {} eapol flow for {} : {}", action, cp, error);
 
                         if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
                             updateConnectPointStatus(cp, OltFlowsStatus.ERROR, null, null);
@@ -781,7 +784,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         return true;
     }
 
-    private void handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowAction action,
+    private void handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowOperation action,
                                             SubscriberAndDeviceInformation si) {
         if (!enableEapol) {
             return;
@@ -818,7 +821,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         return defaultTechProfileId;
     }
 
-    protected Long createTechProfValueForWm(VlanId cVlan, int techProfileId, MeterId upstreamOltMeterId) {
+    protected Long createTechProfValueForWriteMetadata(VlanId cVlan, int techProfileId, MeterId upstreamOltMeterId) {
         Long writeMetadata;
 
         if (cVlan == null || VlanId.NONE.equals(cVlan)) {
@@ -833,10 +836,10 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
     }
 
-    private void processLldpFilteringObjective(DeviceId deviceId, Port port, FlowAction action) {
+    private void processLldpFilteringObjective(DeviceId deviceId, Port port, FlowOperation action) {
         DefaultFilteringObjective.Builder builder = DefaultFilteringObjective.builder();
 
-        FilteringObjective lldp = (action == FlowAction.ADD ? builder.permit() : builder.deny())
+        FilteringObjective lldp = (action == FlowOperation.ADD ? builder.permit() : builder.deny())
                 .withKey(Criteria.matchInPort(port.number()))
                 .addCondition(Criteria.matchEthType(EthType.EtherType.LLDP.ethType()))
                 .withMeta(DefaultTrafficTreatment.builder()
@@ -860,7 +863,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     protected void handleSubscriberDhcpFlows(DeviceId deviceId, Port port,
-                                             FlowAction action,
+                                             FlowOperation action,
                                              SubscriberAndDeviceInformation si) {
         si.uniTagList().forEach(uti -> {
 
@@ -890,7 +893,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     protected void handleSubscriberDataFlows(Device device, Port port,
-                                             FlowAction action,
+                                             FlowOperation action,
                                              SubscriberAndDeviceInformation si) {
 
         Optional<Port> nniPort = oltDeviceService.getNniPort(device);
@@ -925,14 +928,14 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void processDhcpFilteringObjectives(DeviceId deviceId, Port port,
-                                                FlowAction action, FlowDirection direction,
+                                                FlowOperation action, FlowDirection direction,
                                                 int udpSrc, int udpDst, EthType ethType, byte protocol,
                                                 MeterId meterId, MeterId oltMeterId, int techProfileId,
                                                 VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
         log.debug("{} DHCP filtering objectives on {}/{}", action, deviceId, port.number());
 
         ConnectPoint cp = new ConnectPoint(deviceId, port.number());
-        OltFlowsStatus status = action.equals(FlowAction.ADD) ?
+        OltFlowsStatus status = action.equals(FlowOperation.ADD) ?
                 OltFlowsStatus.PENDING_ADD : OltFlowsStatus.PENDING_REMOVE;
         updateConnectPointStatus(cp, null, null, status);
 
@@ -944,10 +947,10 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
 
         if (techProfileId != NONE_TP_ID) {
-            treatmentBuilder.writeMetadata(createTechProfValueForWm(unitagMatch, techProfileId, oltMeterId), 0);
+            treatmentBuilder.writeMetadata(createTechProfValueForWriteMetadata(unitagMatch, techProfileId, oltMeterId), 0);
         }
 
-        FilteringObjective.Builder dhcpBuilder = (action == FlowAction.ADD ? builder.permit() : builder.deny())
+        FilteringObjective.Builder dhcpBuilder = (action == FlowOperation.ADD ? builder.permit() : builder.deny())
                 .withKey(Criteria.matchInPort(port.number()))
                 .addCondition(Criteria.matchEthType(ethType))
                 .addCondition(Criteria.matchIPProtocol(protocol))
@@ -982,7 +985,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             @Override
             public void onError(Objective objective, ObjectiveError error) {
                 log.error("DHCP {} filter for {} failed {} because {}",
-                        (ethType.equals(EthType.EtherType.IPV4.ethType())) ? V4 : V6, port,
+                        (ethType.equals(EthType.EtherType.IPV4.ethType())) ? V4 : V6, cp,
                         action,
                         error);
                 ConnectPoint cp = new ConnectPoint(deviceId, port.number());
@@ -993,7 +996,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void processIgmpFilteringObjectives(DeviceId deviceId, Port port,
-                                                FlowAction action, FlowDirection direction,
+                                                FlowOperation action, FlowDirection direction,
                                                 MeterId meterId, MeterId oltMeterId, int techProfileId,
                                                 VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
 
@@ -1002,7 +1005,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         if (direction == FlowDirection.UPSTREAM) {
 
             if (techProfileId != NONE_TP_ID) {
-                treatmentBuilder.writeMetadata(createTechProfValueForWm(null,
+                treatmentBuilder.writeMetadata(createTechProfValueForWriteMetadata(null,
                         techProfileId, oltMeterId), 0);
             }
 
@@ -1024,7 +1027,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             }
         }
 
-        filterBuilder = (action == FlowAction.ADD) ? filterBuilder.permit() : filterBuilder.deny();
+        filterBuilder = (action == FlowOperation.ADD) ? filterBuilder.permit() : filterBuilder.deny();
 
         FilteringObjective igmp = filterBuilder
                 .withKey(Criteria.matchInPort(port.number()))
@@ -1052,7 +1055,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void processPPPoEDFilteringObjectives(DeviceId deviceId, Port port,
-                                                  FlowAction action, FlowDirection direction,
+                                                  FlowOperation action, FlowDirection direction,
                                                   MeterId meterId, MeterId oltMeterId, int techProfileId,
                                                   VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
 
@@ -1064,10 +1067,10 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
 
         if (techProfileId != NONE_TP_ID) {
-            treatmentBuilder.writeMetadata(createTechProfValueForWm(cTag, techProfileId, oltMeterId), 0);
+            treatmentBuilder.writeMetadata(createTechProfValueForWriteMetadata(cTag, techProfileId, oltMeterId), 0);
         }
 
-        DefaultFilteringObjective.Builder pppoedBuilder = ((action == FlowAction.ADD)
+        DefaultFilteringObjective.Builder pppoedBuilder = ((action == FlowOperation.ADD)
                 ? builder.permit() : builder.deny())
                 .withKey(Criteria.matchInPort(port.number()))
                 .addCondition(Criteria.matchEthType(EthType.EtherType.PPPoED.ethType()))
@@ -1102,7 +1105,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void processUpstreamDataFilteringObjects(DeviceId deviceId, Port port, Port nniPort,
-                                                     FlowAction action,
+                                                     FlowOperation action,
                                                      MeterId upstreamMeterId,
                                                      MeterId upstreamOltMeterId,
                                                      int techProfileId, VlanId sTag,
@@ -1158,16 +1161,16 @@ public class OltFlowService implements OltFlowServiceInterface {
 
             @Override
             public void onError(Objective objective, ObjectiveError error) {
-                log.info("Upstream Data plane filter for {} failed {} because {}.", port, action, error);
                 ConnectPoint cp = new ConnectPoint(deviceId, port.number());
+                log.info("Upstream Data plane filter for {} failed {} because {}.", cp, action, error);
                 updateConnectPointStatus(cp, null, OltFlowsStatus.ERROR, null);
             }
         };
 
         ForwardingObjective flow = null;
-        if (action == FlowAction.ADD) {
+        if (action == FlowOperation.ADD) {
             flow = flowBuilder.add(context);
-        } else if (action == FlowAction.REMOVE) {
+        } else if (action == FlowOperation.REMOVE) {
             flow = flowBuilder.remove(context);
         } else {
             log.error("Flow action not supported: {}", action);
@@ -1179,7 +1182,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     private void processDownstreamDataFilteringObjects(DeviceId deviceId, Port port, Port nniPort,
-                                                       FlowAction action,
+                                                       FlowOperation action,
                                                        MeterId downstreamMeterId,
                                                        MeterId downstreamOltMeterId,
                                                        int techProfileId, VlanId sTag,
@@ -1249,16 +1252,16 @@ public class OltFlowService implements OltFlowServiceInterface {
 
             @Override
             public void onError(Objective objective, ObjectiveError error) {
-                log.info("Downstream Data plane filter for {} failed {} because {}.", port, action, error);
                 ConnectPoint cp = new ConnectPoint(deviceId, port.number());
+                log.info("Downstream Data plane filter for {} failed {} because {}.", cp, action, error);
                 updateConnectPointStatus(cp, null, OltFlowsStatus.ERROR, null);
             }
         };
 
         ForwardingObjective flow = null;
-        if (action == FlowAction.ADD) {
+        if (action == FlowOperation.ADD) {
             flow = flowBuilder.add(context);
-        } else if (action == FlowAction.REMOVE) {
+        } else if (action == FlowOperation.REMOVE) {
             flow = flowBuilder.remove(context);
         } else {
             log.error("Flow action not supported: {}", action);
@@ -1396,6 +1399,21 @@ public class OltFlowService implements OltFlowServiceInterface {
             this.subscriberFlowsStatus = subscriberFlowsStatus;
             this.dhcpStatus = dhcpStatus;
         }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (o == null || getClass() != o.getClass()) return false;
+            OltPortStatus that = (OltPortStatus) o;
+            return defaultEapolStatus == that.defaultEapolStatus
+                    && subscriberFlowsStatus == that.subscriberFlowsStatus
+                    && dhcpStatus == that.dhcpStatus;
+        }
+
+        @Override
+        public int hashCode() {
+            return Objects.hash(defaultEapolStatus, subscriberFlowsStatus, dhcpStatus);
+        }
     }
 
     private class InternalFlowListener implements FlowRuleListener {
@@ -1472,6 +1490,9 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         private boolean isDataFlow(FlowRule flowRule) {
             // we consider subscriber flows the one that matches on VLAN_VID: 0
+
+            // FIXME this is only true for ATT
+            // could we consider everything that is not multicast as data-flow?
             VlanIdCriterion c = (VlanIdCriterion) flowRule.selector().getCriterion(Criterion.Type.VLAN_VID);
             if (c == null) {
                 return false;

@@ -243,7 +243,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 .withMeta(
                         DefaultTrafficTreatment.builder()
                                 .meter(MeterId.meterId(1))
-                                .writeMetadata(oltFlowService.createTechProfValueForWm(
+                                .writeMetadata(oltFlowService.createTechProfValueForWriteMetadata(
                                         VlanId.vlanId(eapolDefaultVlan),
                                         oltFlowService.defaultTechProfileId, MeterId.meterId(1)), 0)
                                 .setOutput(PortNumber.CONTROLLER)
@@ -286,7 +286,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 .withMeta(
                         DefaultTrafficTreatment.builder()
                                 .meter(MeterId.meterId(1))
-                                .writeMetadata(oltFlowService.createTechProfValueForWm(
+                                .writeMetadata(oltFlowService.createTechProfValueForWriteMetadata(
                                         VlanId.vlanId(eapolDefaultVlan),
                                         oltFlowService.defaultTechProfileId, MeterId.meterId(1)), 0)
                                 .setOutput(PortNumber.CONTROLLER)
@@ -304,7 +304,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
     @Test
     public void testHandleNniFlowsOnlyLldp() {
         oltFlowService.enableDhcpOnNni = false;
-        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowOperation.ADD);
 
         FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
                 .permit()
@@ -325,7 +325,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
     public void testHandleNniFlowsDhcpV4() {
         oltFlowService.enableDhcpOnNni = true;
         oltFlowService.enableDhcpV4 = true;
-        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowOperation.ADD);
 
         FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
                 .permit()
@@ -351,7 +351,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
     public void testRemoveNniFlowsDhcpV4() {
         oltFlowService.enableDhcpOnNni = true;
         oltFlowService.enableDhcpV4 = true;
-        oltFlowService.handleNniFlows(testDevice, nniPortDisabled, OltFlowService.FlowAction.REMOVE);
+        oltFlowService.handleNniFlows(testDevice, nniPortDisabled, OltFlowService.FlowOperation.REMOVE);
 
         FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
                 .deny()
@@ -378,7 +378,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         oltFlowService.enableDhcpOnNni = true;
         oltFlowService.enableDhcpV4 = false;
         oltFlowService.enableDhcpV6 = true;
-        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowOperation.ADD);
 
         FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
                 .permit()
@@ -404,7 +404,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
     public void testHandleNniFlowsIgmp() {
         oltFlowService.enableDhcpOnNni = false;
         oltFlowService.enableIgmpOnNni = true;
-        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowAction.ADD);
+        oltFlowService.handleNniFlows(testDevice, nniPort, OltFlowService.FlowOperation.ADD);
 
         FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
                 .permit()
@@ -510,7 +510,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 .add();
 
         oltFlowService.handleSubscriberDhcpFlows(addedSub.device.id(), addedSub.port,
-                OltFlowService.FlowAction.ADD, si);
+                OltFlowService.FlowOperation.ADD, si);
         verify(oltFlowService.flowObjectiveService, times(1))
                 .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
     }

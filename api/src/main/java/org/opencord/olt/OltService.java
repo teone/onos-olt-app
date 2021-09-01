@@ -15,5 +15,5 @@ public interface OltService {
     boolean provisionSubscriber(ConnectPoint cp);
     boolean removeSubscriber(ConnectPoint cp);
 
-     List<DeviceId> fetchOlts();
+     List<DeviceId> getConnectedOlts();
 }
