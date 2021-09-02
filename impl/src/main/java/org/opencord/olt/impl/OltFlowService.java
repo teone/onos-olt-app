@@ -150,7 +150,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     protected BaseInformationService<BandwidthProfileInformation> bpService;
 
     private static final String APP_NAME = "org.opencord.olt";
-    private ApplicationId appId;
+    protected ApplicationId appId;
     private static final Integer MAX_PRIORITY = 10000;
     private static final Integer MIN_PRIORITY = 1000;
     private static final short EAPOL_DEFAULT_VLAN = 4091;
@@ -234,7 +234,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         ERROR
     }
 
-    private InternalFlowListener internalFlowListener = new InternalFlowListener();
+    protected InternalFlowListener internalFlowListener;
 
     @Activate
     public void activate(ComponentContext context) {
@@ -242,6 +242,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         subsService = sadisService.getSubscriberInfoService();
         cfgService.registerProperties(getClass());
         appId = coreService.registerApplication(APP_NAME);
+        internalFlowListener = new InternalFlowListener();
 
         modified(context);
 
@@ -1435,9 +1436,22 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
     }
 
-    private class InternalFlowListener implements FlowRuleListener {
+    protected class InternalFlowListener implements FlowRuleListener {
         @Override
         public void event(FlowRuleEvent event) {
+
+            if (!appId.equals(event.subject().appId())) {
+                return;
+            }
+
+            if (!oltDeviceService.isLocalLeader(event.subject().deviceId())) {
+                if (log.isTraceEnabled()) {
+                    log.trace("ignoring meter event {} " +
+                            "as not leader for {}", event, event.subject().deviceId());
+                }
+                return;
+            }
+
             switch (event.type()) {
                 case RULE_ADDED:
                 case RULE_REMOVED:
@@ -1455,7 +1469,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             }
         }
 
-        private void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
+        public void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
             OltFlowsStatus status = flowRuleStatusToOltFlowStatus(type);
             if (isDefaultEapolFlow(flowRule)) {
                 log.debug("update defaultEapolStatus {} on cp {}", status, cp);
