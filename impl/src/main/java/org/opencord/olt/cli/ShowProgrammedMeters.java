@@ -42,7 +42,7 @@ public class ShowProgrammedMeters extends AbstractShellCommand {
     }
 
     private void display(DeviceId deviceId, List<MeterData> meterData) {
-        print("deviceId=%s, flowRuleCount=%d", deviceId, meterData.size());
+        print("deviceId=%s, meterCount=%d", deviceId, meterData.size());
         meterData.forEach(md ->
                 print("\tmeterId=%s bandwidthProfile=%s status=%s",
                         md.meterId, md.bandwidthProfile, md.meterStatus));
