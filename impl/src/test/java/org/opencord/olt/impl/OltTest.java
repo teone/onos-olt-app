@@ -67,8 +67,9 @@ public class OltTest extends OltTestHelpers {
     private DeviceId deviceId = DeviceId.deviceId("test-device");
     private Device testDevice = new DefaultDevice(ProviderId.NONE, deviceId, Device.Type.OLT,
             "testManufacturer", "1.0", "1.0", "SN", new ChassisId(1));
-    Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
-            DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
+    private Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
+                                                DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1")
+                                                        .build());
     private DiscoveredSubscriber sub = new DiscoveredSubscriber(testDevice,
             uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED, false);
 
@@ -78,7 +79,9 @@ public class OltTest extends OltTestHelpers {
         component.cfgService = new ComponentConfigAdapter();
         component.deviceService = Mockito.mock(DeviceService.class);
         component.eventsQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
-        component.discoveredSubscriberExecutor = Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
+        component.discoveredSubscriberExecutor =
+                Executors.newSingleThreadScheduledExecutor(
+                        groupedThreads("onos/olt",
                 "discovered-cp-%d", log));
         component.oltFlowService = Mockito.mock(OltFlowService.class);
         component.sadisService = Mockito.mock(SadisService.class);
@@ -87,12 +90,12 @@ public class OltTest extends OltTestHelpers {
         reset(component.oltFlowService);
         component.eventsQueue.clear();
 
-        component.activate();
+        component.activate(null);
     }
 
     @After
     public void tearDown() {
-        component.deactivate();
+        component.deactivate(null);
     }
 
     @Test

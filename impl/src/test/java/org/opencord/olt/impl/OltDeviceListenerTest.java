@@ -1,6 +1,5 @@
 package org.opencord.olt.impl;
 
-import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
 import org.mockito.Mockito;
@@ -8,12 +7,7 @@ import org.mockito.invocation.InvocationOnMock;
 import org.mockito.stubbing.Answer;
 import org.onlab.packet.ChassisId;
 import org.onosproject.cluster.ClusterService;
-import org.onosproject.cluster.ControllerNode;
-import org.onosproject.cluster.DefaultControllerNode;
-import org.onosproject.cluster.Leader;
-import org.onosproject.cluster.Leadership;
 import org.onosproject.cluster.LeadershipService;
-import org.onosproject.cluster.NodeId;
 import org.onosproject.mastership.MastershipService;
 import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.DefaultAnnotations;
@@ -25,6 +19,7 @@ import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceEvent;
 import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.provider.ProviderId;
+
 import java.util.LinkedList;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
@@ -76,26 +71,6 @@ public class OltDeviceListenerTest extends OltTestHelpers {
     }
 
     @Test
-    public void testIsLocalLeader() {
-
-        NodeId nodeId = NodeId.nodeId("node1");
-        ControllerNode localNode = new DefaultControllerNode(nodeId, "host1");
-        DeviceId deviceId1 = DeviceId.deviceId("availableNotLocal");
-        DeviceId deviceId2 = DeviceId.deviceId("notAvailableButLocal");
-        Leadership leadership = new Leadership(deviceId2.toString(), new Leader(nodeId, 0, 0), new LinkedList<>());
-
-        doReturn(true).when(oltDeviceListener.deviceService).isAvailable(eq(deviceId1));
-        doReturn(false).when(oltDeviceListener.mastershipService).isLocalMaster(eq(deviceId1));
-        Assert.assertFalse(oltDeviceListener.isLocalLeader(deviceId1));
-
-        doReturn(false).when(oltDeviceListener.deviceService).isAvailable(eq(deviceId1));
-        doReturn(localNode).when(oltDeviceListener.clusterService).getLocalNode();
-        doReturn(leadership).when(oltDeviceListener.leadershipService).runForLeadership(eq(deviceId2.toString()));
-        Assert.assertTrue(oltDeviceListener.isLocalLeader(deviceId2));
-
-    }
-
-    @Test
     public void testDeviceDisconnection() {
         doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
         doReturn(false).when(oltDeviceListener.deviceService).isAvailable(any());
@@ -117,7 +92,7 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         doReturn(false).when(oltDeviceListener.oltDeviceService).isNniPort(eq(testDevice), any());
 
         // make sure we're not leaders of the device
-        doReturn(false).when(oltDeviceListener).isLocalLeader(any());
+        doReturn(false).when(oltDeviceListener.oltDeviceService).isLocalLeader(any());
 
         // this is a new port, should create an entry in the queue
         Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
@@ -135,7 +110,7 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         // and we're local leaders
         doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
         doReturn(true).when(oltDeviceListener.oltDeviceService).isNniPort(eq(testDevice), any());
-        doReturn(true).when(oltDeviceListener).isLocalLeader(any());
+        doReturn(true).when(oltDeviceListener.oltDeviceService).isLocalLeader(any());
 
         Port enabledNniPort = new OltPort(true, PortNumber.portNumber(1048576),
                 DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "nni-1").build());
@@ -181,7 +156,7 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         // and we're local masters
         doReturn(true).when(oltDeviceListener.oltDeviceService).isOlt(testDevice);
         doReturn(false).when(oltDeviceListener.oltDeviceService).isNniPort(eq(testDevice), any());
-        doReturn(true).when(oltDeviceListener).isLocalLeader(any());
+        doReturn(true).when(oltDeviceListener.oltDeviceService).isLocalLeader(any());
 
         PortNumber uniPortNumber = PortNumber.portNumber(16);
         Port uniAddedDisabled = new OltPort(false, uniPortNumber,

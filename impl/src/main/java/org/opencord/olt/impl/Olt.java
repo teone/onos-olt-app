@@ -127,12 +127,12 @@ public class Olt implements OltService {
     /**
      * Executor used to defer flow provisioning to a different thread pool.
      */
-    private static int flowsTreads = 8;
     private ExecutorService flowsExecutor;
 
     @Activate
-    protected void activate() {
+    protected void activate(ComponentContext context) {
         cfgService.registerProperties(getClass());
+        modified(context);
         deviceListener = new OltDeviceListener(clusterService, mastershipService,
                 leadershipService, deviceService, oltDeviceService, oltFlowService,
                 oltMeterService, eventsQueue);
@@ -147,7 +147,7 @@ public class Olt implements OltService {
     }
 
     @Deactivate
-    protected void deactivate() {
+    protected void deactivate(ComponentContext context) {
         cfgService.unregisterProperties(getClass(), false);
         deviceService.removeListener(deviceListener);
         discoveredSubscriberExecutor.shutdown();
@@ -169,11 +169,12 @@ public class Olt implements OltService {
             String tpId = get(properties, FLOW_PROCESSING_THREADS);
             flowProcessingThreads = isNullOrEmpty(tpId) ?
                     FLOW_PROCESSING_THREADS_DEFAULT : Integer.parseInt(tpId.trim());
-
-            log.debug("OLT properties: DefaultBpId: {}, MulticastServiceName: {}, flowProcessingThreads: {}",
-                    defaultBpId, multicastServiceName, flowProcessingThreads);
         }
-        log.info("Reconfigured");
+        log.info("Modified. Values = {}: {}, {}: {}, " +
+                         "{}:{}",
+                 DEFAULT_BP_ID, defaultBpId,
+                 DEFAULT_MCAST_SERVICE_NAME, multicastServiceName,
+                 FLOW_PROCESSING_THREADS, flowProcessingThreads);
     }
 
 

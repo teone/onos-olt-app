@@ -2,7 +2,6 @@ package org.opencord.olt.impl;
 
 import org.onosproject.cluster.ClusterService;
 import org.onosproject.cluster.LeadershipService;
-import org.onosproject.cluster.NodeId;
 import org.onosproject.mastership.MastershipService;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
@@ -63,30 +62,6 @@ public class OltDeviceListener implements DeviceListener {
         this.portExecutor.shutdown();
     }
 
-    /**
-     * Checks for mastership or falls back to leadership on deviceId.
-     * If the device is available use mastership,
-     * otherwise fallback on leadership.
-     * Leadership on the device topic is needed because the master can be NONE
-     * in case the device went away, we still need to handle events
-     * consistently
-     *
-     * @param deviceId The device ID to check.
-     * @return boolean (true if the current instance is managing the device)
-     */
-    protected boolean isLocalLeader(DeviceId deviceId) {
-        // FIXME import OltDeviceService and use the method in there
-        if (deviceService.isAvailable(deviceId)) {
-            return mastershipService.isLocalMaster(deviceId);
-        } else {
-            // Fallback with Leadership service - device id is used as topic
-            NodeId leader = leadershipService.runForLeadership(
-                    deviceId.toString()).leaderNodeId();
-            // Verify if this node is the leader
-            return clusterService.getLocalNode().id().equals(leader);
-        }
-    }
-
     @Override
     public void event(DeviceEvent event) {
         // TODO handle events for existing items when app is installed/removed
@@ -95,6 +70,7 @@ public class OltDeviceListener implements DeviceListener {
             // then we don't care about the events it is emitting
             return;
         }
+        DeviceId deviceId = event.subject().id();
         switch (event.type()) {
             case PORT_STATS_UPDATED:
             case DEVICE_ADDED:
@@ -102,8 +78,8 @@ public class OltDeviceListener implements DeviceListener {
             case PORT_ADDED:
             case PORT_UPDATED:
             case PORT_REMOVED:
-                if (!isLocalLeader(event.subject().id())) {
-                    log.trace("Device {} is not local to this node", event.subject().id());
+                if (!oltDeviceService.isLocalLeader(deviceId)) {
+                    log.trace("Device {} is not local to this node", deviceId);
                     return;
                 }
                 // port added, updated and removed are treated in the same way as we only care whether the port
@@ -115,26 +91,26 @@ public class OltDeviceListener implements DeviceListener {
             case DEVICE_AVAILABILITY_CHANGED:
                 // NOTE that upon disconnection there is no mastership on the device,
                 // and we should anyway clear the local cache of the flows/meters across instances
-                DeviceId deviceId = event.subject().id();
                 if (!deviceService.isAvailable(deviceId) && deviceService.getPorts(deviceId).isEmpty()) {
                     // we're only clearing the device if there are no available ports,
                     // otherwise we assume it's a temporary disconnection
                     log.info("Device {} availability changed to false ports are empty, purging meters and flows",
                             deviceId);
+                    //NOTE all the instances will call these methods
                     oltFlowService.purgeDeviceFlows(deviceId);
                     oltMeterService.purgeDeviceMeters(deviceId);
                 } else {
                     log.info("Device {} availability changed to false, but ports are still available, " +
-                            "assuming disconnection", deviceId);
+                            "assuming temporary disconnection", deviceId);
                 }
                 return;
             case DEVICE_REMOVED:
-                log.info("Device Removed,  purging meters and flows");
-                oltFlowService.purgeDeviceFlows(event.subject().id());
+                log.info("Device {} Removed, purging meters and flows", deviceId);
+                oltFlowService.purgeDeviceFlows(deviceId);
                 oltMeterService.purgeDeviceMeters(event.subject().id());
                 return;
             default:
-                log.debug("OltDeviceListener receives event: {}", event);
+                log.debug("OltDeviceListener receives event: {}, not handling", event);
         }
     }
 
@@ -182,8 +158,7 @@ public class OltDeviceListener implements DeviceListener {
                     }
                 } else if (
                         oltFlowService.hasSubscriberFlows(device.id(), port.number()) ||
-                                oltFlowService.hasDhcpFlows(device.id(), port.number())
-                ) {
+                                oltFlowService.hasDhcpFlows(device.id(), port.number())) {
                     DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
                             DiscoveredSubscriber.Status.REMOVED, true);
                     if (!discoveredSubscribersQueue.contains(sub)) {

@@ -237,11 +237,13 @@ public class OltFlowService implements OltFlowServiceInterface {
     private InternalFlowListener internalFlowListener = new InternalFlowListener();
 
     @Activate
-    public void activate() {
+    public void activate(ComponentContext context) {
         bpService = sadisService.getBandwidthProfileService();
         subsService = sadisService.getSubscriberInfoService();
         cfgService.registerProperties(getClass());
         appId = coreService.registerApplication(APP_NAME);
+
+        modified(context);
 
         // TODO this should be a distributed map
         // NOTE this maps is lost on app/node restart, can we rebuild it?
@@ -269,13 +271,14 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         flowRuleService.addListener(internalFlowListener);
 
-        log.info("Activated");
+        log.info("Started");
     }
 
     @Deactivate
-    public void deactivate() {
+    public void deactivate(ComponentContext context) {
         cfgService.unregisterProperties(getClass(), false);
         flowRuleService.removeListener(internalFlowListener);
+        log.info("Stopped");
     }
 
     @Modified
@@ -321,7 +324,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         String tpId = get(properties, DEFAULT_TP_ID);
         defaultTechProfileId = isNullOrEmpty(tpId) ? DEFAULT_TP_ID_DEFAULT : Integer.parseInt(tpId.trim());
 
-        log.info("modified. Values = enableDhcpOnNni: {}, enableDhcpV4: {}, " +
+        log.info("Modified. Values = enableDhcpOnNni: {}, enableDhcpV4: {}, " +
                         "enableDhcpV6:{}, enableIgmpOnNni:{}, " +
                         "enableEapol:{}, enablePppoe:{}, defaultTechProfileId:{}," +
                         "waitForRemoval:{}",

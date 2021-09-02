@@ -117,6 +117,7 @@ public class OltMeterService implements OltMeterServiceInterface {
      * so that we're sure no flow is referencing it.
      */
     protected Map<DeviceId, Map<MeterKey, AtomicInteger>> pendingRemoveMeters;
+    //TODO move to property
     protected int removeMeterEventNeeded = 3;
 
     /**
@@ -125,9 +126,9 @@ public class OltMeterService implements OltMeterServiceInterface {
     protected boolean deleteMeters = DELETE_METERS_DEFAULT;
 
     @Activate
-    public void activate() {
+    public void activate(ComponentContext context) {
         appId = coreService.registerApplication(APP_NAME);
-
+        modified(context);
         KryoNamespace serializer = KryoNamespace.newBuilder()
                 .register(KryoNamespaces.API)
                 .register(List.class)
@@ -156,24 +157,27 @@ public class OltMeterService implements OltMeterServiceInterface {
 
         meterService.addListener(meterListener);
 
-        log.info("Olt Meter service started {}", programmedMeters);
+        log.info("Started");
     }
 
     @Modified
     public void modified(ComponentContext context) {
         Dictionary<?, ?> properties = context != null ? context.getProperties() : new Properties();
 
-        Boolean d = Tools.isPropertyEnabled(properties, "deleteMeters");
+        Boolean d = Tools.isPropertyEnabled(properties, DELETE_METERS);
         if (d != null) {
             deleteMeters = d;
         }
+
+        log.info("Modified. Values = deleteMeters: {}", deleteMeters);
     }
 
     @Deactivate
-    public void deactivate() {
+    public void deactivate(ComponentContext context) {
         cfgService.unregisterProperties(getClass(), false);
         pendingMetersExecutor.shutdown();
         meterService.removeListener(meterListener);
+        log.info("Stopped");
     }
 
     @Override
@@ -544,9 +548,10 @@ public class OltMeterService implements OltMeterServiceInterface {
                     return;
                 }
 
-                if (!oltDeviceService.isLocalLeader(meterEvent.subject().deviceId())) {
+                if (!oltDeviceService.isLocalLeader(meter.deviceId())) {
                     if (log.isTraceEnabled()) {
-                        log.trace("ignoring meter event as not leader");
+                        log.trace("ignoring meter event {} " +
+                                          "as not leader for {}", meterEvent, meter.deviceId());
                     }
                     return;
                 }
@@ -554,6 +559,9 @@ public class OltMeterService implements OltMeterServiceInterface {
                 log.debug("Received meter event {}", meterEvent);
                 MeterKey key = MeterKey.key(meter.deviceId(), meter.id());
                 if (meterEvent.type().equals(MeterEvent.Type.METER_REFERENCE_COUNT_ZERO)) {
+                    log.info("Zero Count Reference event is received for meter {} on {}, " +
+                                     "incrementing counter",
+                             meter.id(), meter.deviceId());
                     incrementMeterCount(meter.deviceId(), key);
                     if (pendingRemoveMeters.get(meter.deviceId())
                             .get(key).get() == removeMeterEventNeeded) {

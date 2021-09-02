@@ -1,5 +1,6 @@
 package org.opencord.olt.impl;
 
+import org.junit.After;
 import org.junit.Assert;
 import org.junit.Before;
 import org.junit.Test;
@@ -38,10 +39,14 @@ public class OltMeterServiceTest extends OltTestHelpers {
         component.sadisService = Mockito.mock(SadisService.class);
         component.meterService = new MeterServiceAdapter();
         component.storageService = new TestStorageService();
-        component.activate();
-
-        // we're spying on the component under test so that we can mock the return of iternal methods
+        component.activate(null);
         oltMeterService = Mockito.spy(component);
+
+    }
+
+    @After
+    public void tearDown() {
+        component.deactivate(null);
     }
 
     @Test

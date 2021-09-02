@@ -97,12 +97,12 @@ public class OltFlowServiceTest extends OltTestHelpers {
         doReturn(Mockito.mock(BaseInformationService.class))
                 .when(oltFlowService.sadisService).getSubscriberInfoService();
         doReturn(testAppId).when(oltFlowService.coreService).registerApplication("org.opencord.olt");
-        oltFlowService.activate();
+        oltFlowService.activate(null);
     }
 
     @After
     public void tearDown() {
-        oltFlowService.deactivate();
+        oltFlowService.deactivate(null);
     }
 
     @Test
