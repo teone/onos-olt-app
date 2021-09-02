@@ -190,8 +190,20 @@ public class OltMeterService implements OltMeterServiceInterface {
         }
     }
 
+    /**
+     * Will create a meter if needed and return true once available.
+     * @param deviceId DeviceId
+     * @param bandwidthProfile Bandwidth Profile Id
+     * @return true
+     */
     @Override
     public boolean createMeter(DeviceId deviceId, String bandwidthProfile) {
+
+        // NOTE it is possible that hasMeterByBandwidthProfile returns false has the meter is in PENDING_ADD
+        // then a different thread changes the meter to ADDED
+        // and thus hasPendingMeterByBandwidthProfile return false as well and we install the meter a second time
+        // this causes an inconsistency between the existing meter and meterId stored in the map
+
         if (!hasMeterByBandwidthProfile(deviceId, bandwidthProfile)) {
             // NOTE this is at trace level as it's constantly called by the queue processor
             if (log.isTraceEnabled()) {
@@ -281,8 +293,12 @@ public class OltMeterService implements OltMeterServiceInterface {
             if (metersOnDevice == null || metersOnDevice.isEmpty()) {
                 return false;
             }
+            // NOTE that we check in order if the meter was ADDED and if it wasn't we check for PENDING_ADD
+            // it is possible that a different thread move the meter state from PENDING_ADD
+            // to ADDED between these two checks
+            // to avoid creating the meter twice we return true event if the meter is already added
             return metersOnDevice.stream().anyMatch(md -> md.bandwidthProfile.equals(bandwidthProfile)
-                    && md.meterStatus.equals(MeterState.PENDING_ADD));
+                    && (md.meterStatus.equals(MeterState.PENDING_ADD) || md.meterStatus.equals(MeterState.ADDED)));
         } finally {
             programmedMeterReadLock.unlock();
         }
