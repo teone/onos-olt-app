@@ -71,7 +71,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -1398,41 +1397,6 @@ public class OltFlowService implements OltFlowServiceInterface {
             cpStatus.put(cp, status);
         } finally {
             cpStatusWriteLock.unlock();
-        }
-    }
-
-    public static class OltPortStatus {
-        // TODO consider adding a lastUpdated field, it may help with debugging
-        public OltFlowsStatus defaultEapolStatus;
-        public OltFlowsStatus subscriberFlowsStatus;
-        // NOTE we need to keep track of the DHCP status as that is installed before the other flows
-        // if macLearning is enabled (DHCP is needed to learn the MacAddress from the host)
-        public OltFlowsStatus dhcpStatus;
-
-        public OltPortStatus(OltFlowsStatus defaultEapolStatus,
-                             OltFlowsStatus subscriberFlowsStatus, OltFlowsStatus dhcpStatus) {
-            this.defaultEapolStatus = defaultEapolStatus;
-            this.subscriberFlowsStatus = subscriberFlowsStatus;
-            this.dhcpStatus = dhcpStatus;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            OltPortStatus that = (OltPortStatus) o;
-            return defaultEapolStatus == that.defaultEapolStatus
-                    && subscriberFlowsStatus == that.subscriberFlowsStatus
-                    && dhcpStatus == that.dhcpStatus;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(defaultEapolStatus, subscriberFlowsStatus, dhcpStatus);
         }
     }
 

@@ -24,7 +24,7 @@ public interface OltFlowServiceInterface {
 
     void purgeDeviceFlows(DeviceId deviceId);
 
-    Map<ConnectPoint, OltFlowService.OltPortStatus> getConnectPointStatus();
+    Map<ConnectPoint, OltPortStatus> getConnectPointStatus();
     Map<ConnectPoint, Set<UniTagInformation>> getProgrammedSusbcribers();
     Map<ConnectPoint, Boolean> getRequestedSusbcribers();
 

@@ -123,13 +123,13 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // cpStatus map for the test
         oltFlowService.cpStatus = oltFlowService.storageService.
-                <ConnectPoint, OltFlowService.OltPortStatus>consistentMapBuilder().build().asJavaMap();
-        OltFlowService.OltPortStatus cp1Status = new OltFlowService.OltPortStatus(PENDING_ADD, NONE, NONE);
+                <ConnectPoint, OltPortStatus>consistentMapBuilder().build().asJavaMap();
+        OltPortStatus cp1Status = new OltPortStatus(PENDING_ADD, NONE, NONE);
         oltFlowService.cpStatus.put(cp1, cp1Status);
 
         //check that we only update the provided value
         oltFlowService.updateConnectPointStatus(cp1, ADDED, null, null);
-        OltFlowService.OltPortStatus updated = oltFlowService.cpStatus.get(cp1);
+        OltPortStatus updated = oltFlowService.cpStatus.get(cp1);
         Assert.assertEquals(ADDED, updated.defaultEapolStatus);
         Assert.assertEquals(NONE, updated.subscriberFlowsStatus);
         Assert.assertEquals(NONE, updated.dhcpStatus);
@@ -151,13 +151,13 @@ public class OltFlowServiceTest extends OltTestHelpers {
         DeviceId deviceId = DeviceId.deviceId("test-device");
         ConnectPoint cpWithStatus = new ConnectPoint(deviceId, PortNumber.portNumber(16));
 
-        OltFlowService.OltPortStatus portStatusAdded = new OltFlowService.OltPortStatus(
+        OltPortStatus portStatusAdded = new OltPortStatus(
                 OltFlowService.OltFlowsStatus.ADDED,
                 NONE,
                 null
         );
 
-        OltFlowService.OltPortStatus portStatusRemoved = new OltFlowService.OltPortStatus(
+        OltPortStatus portStatusRemoved = new OltPortStatus(
                 REMOVED,
                 NONE,
                 null
@@ -178,19 +178,19 @@ public class OltFlowServiceTest extends OltTestHelpers {
         PortNumber portNumber = PortNumber.portNumber(16);
         ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
 
-        OltFlowService.OltPortStatus withDefaultEapol = new OltFlowService.OltPortStatus(
+        OltPortStatus withDefaultEapol = new OltPortStatus(
                 ADDED,
                 NONE,
                 NONE
         );
 
-        OltFlowService.OltPortStatus withDhcp = new OltFlowService.OltPortStatus(
+        OltPortStatus withDhcp = new OltPortStatus(
                 REMOVED,
                 NONE,
                 ADDED
         );
 
-        OltFlowService.OltPortStatus withSubFlow = new OltFlowService.OltPortStatus(
+        OltPortStatus withSubFlow = new OltPortStatus(
                 REMOVED,
                 ADDED,
                 ADDED
