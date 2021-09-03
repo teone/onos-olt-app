@@ -1446,7 +1446,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
             if (!oltDeviceService.isLocalLeader(event.subject().deviceId())) {
                 if (log.isTraceEnabled()) {
-                    log.trace("ignoring meter event {} " +
+                    log.trace("ignoring flow event {} " +
                             "as not leader for {}", event, event.subject().deviceId());
                 }
                 return;
@@ -1469,7 +1469,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             }
         }
 
-        public void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
+        protected void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
             OltFlowsStatus status = flowRuleStatusToOltFlowStatus(type);
             if (isDefaultEapolFlow(flowRule)) {
                 log.debug("update defaultEapolStatus {} on cp {}", status, cp);
