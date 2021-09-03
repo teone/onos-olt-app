@@ -28,7 +28,10 @@ import org.onosproject.net.HostId;
 import org.onosproject.net.HostLocation;
 import org.onosproject.net.Port;
 import org.onosproject.net.PortNumber;
+import org.onosproject.net.flow.DefaultFlowRule;
 import org.onosproject.net.flow.DefaultTrafficTreatment;
+import org.onosproject.net.flow.FlowRule;
+import org.onosproject.net.flow.FlowRuleEvent;
 import org.onosproject.net.flow.FlowRuleService;
 import org.onosproject.net.flow.criteria.Criteria;
 import org.onosproject.net.flowobjective.DefaultFilteringObjective;
@@ -54,6 +57,7 @@ import static org.mockito.Matchers.argThat;
 import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.spy;
 import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.opencord.olt.impl.OltFlowService.OltFlowsStatus.NONE;
@@ -65,6 +69,7 @@ import static org.opencord.olt.impl.OsgiPropertyConstants.DEFAULT_BP_ID_DEFAULT;
 public class OltFlowServiceTest extends OltTestHelpers {
 
     private OltFlowService oltFlowService;
+    OltFlowService.InternalFlowListener internalFlowListener;
     private final ApplicationId testAppId = new DefaultApplicationId(1, "org.opencord.olt.test");
     private final short eapolDefaultVlan = 4091;
 
@@ -93,11 +98,15 @@ public class OltFlowServiceTest extends OltTestHelpers {
         oltFlowService.hostService = Mockito.mock(HostService.class);
         oltFlowService.flowRuleService = Mockito.mock(FlowRuleService.class);
         oltFlowService.storageService = new TestStorageService();
+        oltFlowService.oltDeviceService = Mockito.mock(OltDeviceService.class);
+        oltFlowService.appId = testAppId;
 
         doReturn(Mockito.mock(BaseInformationService.class))
                 .when(oltFlowService.sadisService).getSubscriberInfoService();
         doReturn(testAppId).when(oltFlowService.coreService).registerApplication("org.opencord.olt");
         oltFlowService.activate(null);
+
+        internalFlowListener = spy(oltFlowService.internalFlowListener);
     }
 
     @After
@@ -114,13 +123,13 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // cpStatus map for the test
         oltFlowService.cpStatus = oltFlowService.storageService.
-                <ConnectPoint, OltFlowService.OltPortStatus>consistentMapBuilder().build().asJavaMap();
-        OltFlowService.OltPortStatus cp1Status = new OltFlowService.OltPortStatus(PENDING_ADD, NONE, NONE);
+                <ConnectPoint, OltPortStatus>consistentMapBuilder().build().asJavaMap();
+        OltPortStatus cp1Status = new OltPortStatus(PENDING_ADD, NONE, NONE);
         oltFlowService.cpStatus.put(cp1, cp1Status);
 
         //check that we only update the provided value
         oltFlowService.updateConnectPointStatus(cp1, ADDED, null, null);
-        OltFlowService.OltPortStatus updated = oltFlowService.cpStatus.get(cp1);
+        OltPortStatus updated = oltFlowService.cpStatus.get(cp1);
         Assert.assertEquals(ADDED, updated.defaultEapolStatus);
         Assert.assertEquals(NONE, updated.subscriberFlowsStatus);
         Assert.assertEquals(NONE, updated.dhcpStatus);
@@ -142,13 +151,13 @@ public class OltFlowServiceTest extends OltTestHelpers {
         DeviceId deviceId = DeviceId.deviceId("test-device");
         ConnectPoint cpWithStatus = new ConnectPoint(deviceId, PortNumber.portNumber(16));
 
-        OltFlowService.OltPortStatus portStatusAdded = new OltFlowService.OltPortStatus(
+        OltPortStatus portStatusAdded = new OltPortStatus(
                 OltFlowService.OltFlowsStatus.ADDED,
                 NONE,
                 null
         );
 
-        OltFlowService.OltPortStatus portStatusRemoved = new OltFlowService.OltPortStatus(
+        OltPortStatus portStatusRemoved = new OltPortStatus(
                 REMOVED,
                 NONE,
                 null
@@ -169,19 +178,19 @@ public class OltFlowServiceTest extends OltTestHelpers {
         PortNumber portNumber = PortNumber.portNumber(16);
         ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
 
-        OltFlowService.OltPortStatus withDefaultEapol = new OltFlowService.OltPortStatus(
+        OltPortStatus withDefaultEapol = new OltPortStatus(
                 ADDED,
                 NONE,
                 NONE
         );
 
-        OltFlowService.OltPortStatus withDhcp = new OltFlowService.OltPortStatus(
+        OltPortStatus withDhcp = new OltPortStatus(
                 REMOVED,
                 NONE,
                 ADDED
         );
 
-        OltFlowService.OltPortStatus withSubFlow = new OltFlowService.OltPortStatus(
+        OltPortStatus withSubFlow = new OltPortStatus(
                 REMOVED,
                 ADDED,
                 ADDED
@@ -513,5 +522,42 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 OltFlowService.FlowOperation.ADD, si);
         verify(oltFlowService.flowObjectiveService, times(1))
                 .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+    }
+
+    @Test
+    public void testInternalFlowListenerNotMaster() {
+        doReturn(false).when(oltFlowService.oltDeviceService).isLocalLeader(any());
+
+        FlowRule flowRule = DefaultFlowRule.builder()
+                .forDevice(DeviceId.deviceId("foo"))
+                .fromApp(testAppId)
+                .makePermanent()
+                .withPriority(1000)
+                .build();
+        FlowRuleEvent event = new FlowRuleEvent(FlowRuleEvent.Type.RULE_ADDED,
+                flowRule);
+
+        internalFlowListener.event(event);
+
+        // if we're not master of the device, we should not update
+        verify(internalFlowListener, never()).updateCpStatus(any(), any(), any());
+    }
+
+    @Test
+    public void testInternalFlowListenerDifferentApp() {
+        ApplicationId someAppId = new DefaultApplicationId(1, "org.opencord.olt.not-test");
+        FlowRule flowRule = DefaultFlowRule.builder()
+                .forDevice(DeviceId.deviceId("foo"))
+                .fromApp(someAppId)
+                .makePermanent()
+                .withPriority(1000)
+                .build();
+        FlowRuleEvent event = new FlowRuleEvent(FlowRuleEvent.Type.RULE_ADDED,
+                flowRule);
+
+        internalFlowListener.event(event);
+
+        // if we're not master of the device, we should not update
+        verify(internalFlowListener, never()).updateCpStatus(any(), any(), any());
     }
 }

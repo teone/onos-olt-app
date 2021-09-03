@@ -26,8 +26,8 @@ import org.onosproject.cli.net.PortNumberCompleter;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.DeviceId;
 import org.onosproject.net.PortNumber;
-import org.opencord.olt.impl.OltFlowService;
 import org.opencord.olt.impl.OltFlowServiceInterface;
+import org.opencord.olt.impl.OltPortStatus;
 
 import java.util.HashMap;
 import java.util.Map;
@@ -51,12 +51,12 @@ public class ShowPortStatus extends AbstractShellCommand {
     protected void doExecute() {
 
         OltFlowServiceInterface service = AbstractShellCommand.get(OltFlowServiceInterface.class);
-        Map<ConnectPoint, OltFlowService.OltPortStatus> flowStatus = service.getConnectPointStatus();
+        Map<ConnectPoint, OltPortStatus> flowStatus = service.getConnectPointStatus();
         if (flowStatus.isEmpty()) {
             print("No ports handled by the org.opencord.olt app");
         }
 
-        Map<DeviceId, Map<PortNumber, OltFlowService.OltPortStatus>> sortedStatus = new HashMap<>();
+        Map<DeviceId, Map<PortNumber, OltPortStatus>> sortedStatus = new HashMap<>();
 
         DeviceId deviceId = strDeviceId != null ? DeviceId.deviceId(strDeviceId) : null;
         PortNumber portNumber = strPort != null ? PortNumber.portNumber(strPort) : null;
@@ -68,7 +68,7 @@ public class ShowPortStatus extends AbstractShellCommand {
             if (portNumber != null && !portNumber.equals(cp.port())) {
                 return;
             }
-            Map<PortNumber, OltFlowService.OltPortStatus> portMap = sortedStatus.get(cp.deviceId());
+            Map<PortNumber, OltPortStatus> portMap = sortedStatus.get(cp.deviceId());
             if (portMap == null) {
                 portMap = new HashMap<>();
             }
@@ -80,7 +80,7 @@ public class ShowPortStatus extends AbstractShellCommand {
         sortedStatus.forEach(this::display);
     }
 
-    private void display(DeviceId deviceId, Map<PortNumber, OltFlowService.OltPortStatus> portStatus) {
+    private void display(DeviceId deviceId, Map<PortNumber, OltPortStatus> portStatus) {
         print("deviceId=%s, managedPorts=%d", deviceId, portStatus.size());
         portStatus.forEach((port, status) ->
                 print("\tport=%s defaultEapolStatus=%s subscriberFlowsStatus=%s dhcpStatus=%s",

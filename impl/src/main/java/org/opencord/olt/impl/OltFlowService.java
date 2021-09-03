@@ -71,7 +71,6 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.Map;
-import java.util.Objects;
 import java.util.Optional;
 import java.util.Properties;
 import java.util.Set;
@@ -150,7 +149,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     protected BaseInformationService<BandwidthProfileInformation> bpService;
 
     private static final String APP_NAME = "org.opencord.olt";
-    private ApplicationId appId;
+    protected ApplicationId appId;
     private static final Integer MAX_PRIORITY = 10000;
     private static final Integer MIN_PRIORITY = 1000;
     private static final short EAPOL_DEFAULT_VLAN = 4091;
@@ -234,7 +233,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         ERROR
     }
 
-    private InternalFlowListener internalFlowListener = new InternalFlowListener();
+    protected InternalFlowListener internalFlowListener;
 
     @Activate
     public void activate(ComponentContext context) {
@@ -242,6 +241,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         subsService = sadisService.getSubscriberInfoService();
         cfgService.registerProperties(getClass());
         appId = coreService.registerApplication(APP_NAME);
+        internalFlowListener = new InternalFlowListener();
 
         modified(context);
 
@@ -1400,44 +1400,22 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
     }
 
-    public static class OltPortStatus {
-        // TODO consider adding a lastUpdated field, it may help with debugging
-        public OltFlowsStatus defaultEapolStatus;
-        public OltFlowsStatus subscriberFlowsStatus;
-        // NOTE we need to keep track of the DHCP status as that is installed before the other flows
-        // if macLearning is enabled (DHCP is needed to learn the MacAddress from the host)
-        public OltFlowsStatus dhcpStatus;
-
-        public OltPortStatus(OltFlowsStatus defaultEapolStatus,
-                             OltFlowsStatus subscriberFlowsStatus, OltFlowsStatus dhcpStatus) {
-            this.defaultEapolStatus = defaultEapolStatus;
-            this.subscriberFlowsStatus = subscriberFlowsStatus;
-            this.dhcpStatus = dhcpStatus;
-        }
-
-        @Override
-        public boolean equals(Object o) {
-            if (this == o) {
-                return true;
-            }
-            if (o == null || getClass() != o.getClass()) {
-                return false;
-            }
-            OltPortStatus that = (OltPortStatus) o;
-            return defaultEapolStatus == that.defaultEapolStatus
-                    && subscriberFlowsStatus == that.subscriberFlowsStatus
-                    && dhcpStatus == that.dhcpStatus;
-        }
-
-        @Override
-        public int hashCode() {
-            return Objects.hash(defaultEapolStatus, subscriberFlowsStatus, dhcpStatus);
-        }
-    }
-
-    private class InternalFlowListener implements FlowRuleListener {
+    protected class InternalFlowListener implements FlowRuleListener {
         @Override
         public void event(FlowRuleEvent event) {
+
+            if (!appId.equals(event.subject().appId())) {
+                return;
+            }
+
+            if (!oltDeviceService.isLocalLeader(event.subject().deviceId())) {
+                if (log.isTraceEnabled()) {
+                    log.trace("ignoring flow event {} " +
+                            "as not leader for {}", event, event.subject().deviceId());
+                }
+                return;
+            }
+
             switch (event.type()) {
                 case RULE_ADDED:
                 case RULE_REMOVED:
@@ -1455,7 +1433,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             }
         }
 
-        private void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
+        protected void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
             OltFlowsStatus status = flowRuleStatusToOltFlowStatus(type);
             if (isDefaultEapolFlow(flowRule)) {
                 log.debug("update defaultEapolStatus {} on cp {}", status, cp);
