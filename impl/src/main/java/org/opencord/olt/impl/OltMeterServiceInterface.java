@@ -4,7 +4,6 @@ import org.onosproject.net.DeviceId;
 import org.onosproject.net.meter.MeterId;
 import org.opencord.sadis.SubscriberAndDeviceInformation;
 
-import java.util.List;
 import java.util.Map;
 
 public interface OltMeterServiceInterface {
@@ -35,6 +34,6 @@ public interface OltMeterServiceInterface {
 
     void purgeDeviceMeters(DeviceId deviceId);
 
-    Map<DeviceId, List<MeterData>> getProgrammedMeters();
+    Map<DeviceId, Map<String, MeterData>> getProgrammedMeters();
 
 }

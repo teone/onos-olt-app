@@ -23,7 +23,6 @@ import org.onosproject.net.DeviceId;
 import org.opencord.olt.impl.MeterData;
 import org.opencord.olt.impl.OltMeterServiceInterface;
 
-import java.util.List;
 import java.util.Map;
 
 @Service
@@ -34,17 +33,17 @@ public class ShowMeterMappings extends AbstractShellCommand {
     @Override
     protected void doExecute() {
         OltMeterServiceInterface service = AbstractShellCommand.get(OltMeterServiceInterface.class);
-        Map<DeviceId, List<MeterData>> meters = service.getProgrammedMeters();
+        Map<DeviceId, Map<String, MeterData>> meters = service.getProgrammedMeters();
         if (meters.isEmpty()) {
             print("No meters programmed by the org.opencord.olt app");
         }
         meters.forEach(this::display);
     }
 
-    private void display(DeviceId deviceId, List<MeterData> meterData) {
-        meterData.forEach(md ->
+    private void display(DeviceId deviceId, Map<String, MeterData> data) {
+        data.forEach((bp, md) ->
                 print("\tbpInfo=%s deviceId=%s meterId=%s",
-                        deviceId, md.bandwidthProfile, md.meterId));
+                        deviceId, bp, md.meterId));
 
     }
 }

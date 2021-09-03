@@ -76,6 +76,7 @@ public class OltTest extends OltTestHelpers {
     @Before
     public void setUp() {
         component = new Olt();
+        component.queueDelay = 0; // avoid delays in the queue add to make things easier in testing
         component.cfgService = new ComponentConfigAdapter();
         component.deviceService = Mockito.mock(DeviceService.class);
         component.eventsQueue = new LinkedBlockingQueue<DiscoveredSubscriber>();
