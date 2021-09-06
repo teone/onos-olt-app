@@ -82,10 +82,6 @@ public class OltFlowServiceTest extends OltTestHelpers {
             DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "nni-1").build());
     Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
             DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1").build());
-    private final DiscoveredSubscriber addedSub = new DiscoveredSubscriber(testDevice,
-            uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED, false);
-    private final DiscoveredSubscriber removedSub = new DiscoveredSubscriber(testDevice,
-            uniUpdateEnabled, DiscoveredSubscriber.Status.REMOVED, false);
 
     @Before
     public void setUp() {
@@ -209,7 +205,18 @@ public class OltFlowServiceTest extends OltTestHelpers {
     @Test
     public void testHandleBasicPortFlowsNoEapol() throws Exception {
         oltFlowService.enableEapol = false;
+        // create empty service for testing
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        UniTagInformation empty = new UniTagInformation.Builder().build();
+        uniTagInformationList.add(empty);
 
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+
+        final DiscoveredSubscriber addedSub =
+                new DiscoveredSubscriber(testDevice,
+                                         uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED,
+                                         false, si);
         oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
         // if eapol is not enabled there's nothing we need to do,
         // so make sure we don't even call sadis
@@ -218,8 +225,18 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
     @Test
     public void testHandleBasicPortFlowsWithEapolNoMeter() throws Exception {
-        // wether the meter is pending or not is up to the createMeter method to handle
-        // we just don't proceed with the subscriber till it's readz
+        // create empty service for testing
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        UniTagInformation empty = new UniTagInformation.Builder().build();
+        uniTagInformationList.add(empty);
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+        final DiscoveredSubscriber addedSub =
+                new DiscoveredSubscriber(testDevice,
+                                         uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED,
+                                         false, si);
+        // whether the meter is pending or not is up to the createMeter method to handle
+        // we just don't proceed with the subscriber till it's ready
         doReturn(false).when(oltFlowService.oltMeterService)
                 .createMeter(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
         boolean res = oltFlowService.handleBasicPortFlows(addedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
@@ -233,19 +250,28 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
     @Test
     public void testHandleBasicPortFlowsWithEapolAddedMeter() throws Exception {
-
+        // create empty service for testing
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        UniTagInformation empty = new UniTagInformation.Builder().build();
+        uniTagInformationList.add(empty);
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+        final DiscoveredSubscriber addedSub =
+                new DiscoveredSubscriber(testDevice,
+                                         uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED,
+                                         false, si);
         // this is the happy case, we have the meter so we check that the default EAPOL flow
         // is installed
         doReturn(true).when(oltFlowService.oltMeterService)
-                .createMeter(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
+                .createMeter(deviceId, DEFAULT_BP_ID_DEFAULT);
         doReturn(true).when(oltFlowService.oltMeterService)
-                .hasMeterByBandwidthProfile(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
+                .hasMeterByBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT);
         doReturn(MeterId.meterId(1)).when(oltFlowService.oltMeterService)
-                .getMeterIdForBandwidthProfile(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
+                .getMeterIdForBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT);
 
         FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
                 .permit()
-                .withKey(Criteria.matchInPort(addedSub.port.number()))
+                .withKey(Criteria.matchInPort(uniUpdateEnabled.number()))
                 .addCondition(Criteria.matchEthType(EthType.EtherType.EAPOL.ethType()))
                 .fromApp(testAppId)
                 .withPriority(10000)
@@ -271,24 +297,34 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // the meter exist, no need to check for PENDING or to create it
         verify(oltFlowService.oltMeterService, never())
-                .hasPendingMeterByBandwidthProfile(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
+                .hasPendingMeterByBandwidthProfile(eq(deviceId), eq(DEFAULT_BP_ID_DEFAULT));
         verify(oltFlowService.oltMeterService, never())
-                .createMeterForBp(eq(addedSub.device.id()), eq(DEFAULT_BP_ID_DEFAULT));
+                .createMeterForBp(eq(deviceId), eq(DEFAULT_BP_ID_DEFAULT));
 
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+                .filter(eq(deviceId), argThat(new FilteringObjectiveMatcher(expectedFilter)));
     }
 
     @Test
     public void testHandleBasicPortFlowsRemovedSub() throws Exception {
+        // create empty service for testing
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        UniTagInformation empty = new UniTagInformation.Builder().build();
+        uniTagInformationList.add(empty);
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+        final DiscoveredSubscriber removedSub =
+                new DiscoveredSubscriber(testDevice,
+                                         uniUpdateEnabled, DiscoveredSubscriber.Status.REMOVED,
+                                         false, si);
         // we are testing that when a port goes down we remove the default EAPOL flow
 
         doReturn(MeterId.meterId(1)).when(oltFlowService.oltMeterService)
-                .getMeterIdForBandwidthProfile(addedSub.device.id(), DEFAULT_BP_ID_DEFAULT);
+                .getMeterIdForBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT);
 
         FilteringObjective expectedFilter = DefaultFilteringObjective.builder()
                 .deny()
-                .withKey(Criteria.matchInPort(addedSub.port.number()))
+                .withKey(Criteria.matchInPort(uniUpdateEnabled.number()))
                 .addCondition(Criteria.matchEthType(EthType.EtherType.EAPOL.ethType()))
                 .fromApp(testAppId)
                 .withPriority(10000)
@@ -307,7 +343,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
         oltFlowService.handleBasicPortFlows(removedSub, DEFAULT_BP_ID_DEFAULT, DEFAULT_BP_ID_DEFAULT);
 
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+                .filter(eq(deviceId), argThat(new FilteringObjectiveMatcher(expectedFilter)));
     }
 
     @Test
@@ -325,9 +361,9 @@ public class OltFlowServiceTest extends OltTestHelpers {
                 .add();
 
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+                .filter(eq(deviceId), argThat(new FilteringObjectiveMatcher(expectedFilter)));
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), any());
+                .filter(eq(deviceId), any());
     }
 
     @Test
@@ -350,10 +386,10 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // invoked with the correct DHCP filtering objective
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+                .filter(eq(deviceId), argThat(new FilteringObjectiveMatcher(expectedFilter)));
         // invoked only twice, LLDP and DHCP
         verify(oltFlowService.flowObjectiveService, times(2))
-                .filter(eq(addedSub.device.id()), any());
+                .filter(eq(deviceId), any());
     }
 
     @Test
@@ -376,10 +412,10 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // invoked with the correct DHCP filtering objective
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+                .filter(eq(deviceId), argThat(new FilteringObjectiveMatcher(expectedFilter)));
         // invoked only twice, LLDP and DHCP
         verify(oltFlowService.flowObjectiveService, times(2))
-                .filter(eq(addedSub.device.id()), any());
+                .filter(eq(deviceId), any());
     }
 
     @Test
@@ -403,10 +439,10 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // invoked with the correct DHCP filtering objective
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+                .filter(eq(deviceId), argThat(new FilteringObjectiveMatcher(expectedFilter)));
         // invoked only twice, LLDP and DHCP
         verify(oltFlowService.flowObjectiveService, times(2))
-                .filter(eq(addedSub.device.id()), any());
+                .filter(eq(deviceId), any());
     }
 
     @Test
@@ -426,10 +462,10 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         // invoked with the correct DHCP filtering objective
         verify(oltFlowService.flowObjectiveService, times(1))
-                .filter(eq(addedSub.device.id()), argThat(new FilteringObjectiveMatcher(expectedFilter)));
+                .filter(eq(deviceId), argThat(new FilteringObjectiveMatcher(expectedFilter)));
         // invoked only twice, LLDP and DHCP
         verify(oltFlowService.flowObjectiveService, times(2))
-                .filter(eq(addedSub.device.id()), any());
+                .filter(eq(deviceId), any());
     }
 
     @Test
@@ -461,7 +497,7 @@ public class OltFlowServiceTest extends OltTestHelpers {
     }
 
     @Test
-    public void testIsMaacAddressAvailableViaConfiguration() {
+    public void testIsMacAddressAvailableViaConfiguration() {
         // create a single service that has a macAddress configure
         List<UniTagInformation> uniTagInformationList = new LinkedList<>();
         UniTagInformation hsia = new UniTagInformation.Builder()
@@ -499,6 +535,11 @@ public class OltFlowServiceTest extends OltTestHelpers {
 
         SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
         si.setUniTagList(uniTagInformationList);
+
+        final DiscoveredSubscriber addedSub =
+                new DiscoveredSubscriber(testDevice,
+                                         uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED,
+                                         false, si);
 
         // return meter IDs
         doReturn(MeterId.meterId(2)).when(oltFlowService.oltMeterService)

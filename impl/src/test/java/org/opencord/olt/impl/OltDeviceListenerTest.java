@@ -19,8 +19,12 @@ import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceEvent;
 import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.provider.ProviderId;
+import org.opencord.sadis.BaseInformationService;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
+import org.opencord.sadis.UniTagInformation;
 
 import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -51,10 +55,13 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         DeviceService deviceService = Mockito.mock(DeviceService.class);
         LeadershipService leadershipService = Mockito.mock(LeadershipService.class);
         ClusterService clusterService = Mockito.mock(ClusterService.class);
+        BaseInformationService<SubscriberAndDeviceInformation> subsService = Mockito.mock(BaseInformationService.class);
 
         OltDeviceListener baseClass = new OltDeviceListener(clusterService, mastershipService,
-                leadershipService, deviceService, oltDeviceService, oltFlowService,
-                oltMeterService, discoveredSubscribersQueue);
+                                                            leadershipService, deviceService,
+                                                            oltDeviceService, oltFlowService,
+                                                            oltMeterService, discoveredSubscribersQueue,
+                                                            subsService);
         baseClass.portExecutor = Mockito.mock(ExecutorService.class);
         oltDeviceListener = Mockito.spy(baseClass);
 
@@ -170,8 +177,16 @@ public class OltDeviceListenerTest extends OltTestHelpers {
         // if the port has default EAPOL then create an entry in the queue to remove it
         doReturn(true).when(oltDeviceListener.oltFlowService)
                 .hasDefaultEapol(testDevice.id(), uniPortNumber);
-        oltDeviceListener.event(uniAddedDisabledEvent);
+        // create empty service for testing
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        UniTagInformation empty = new UniTagInformation.Builder().build();
+        uniTagInformationList.add(empty);
 
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+        doReturn(si).when(oltDeviceListener.subsService).get("uni-1");
+
+        oltDeviceListener.event(uniAddedDisabledEvent);
         assert !discoveredSubscribersQueue.isEmpty();
         sub = discoveredSubscribersQueue.poll();
         assert !sub.hasSubscriber; // this is not a provision subscriber call

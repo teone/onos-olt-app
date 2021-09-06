@@ -506,33 +506,30 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         }
 
-        SubscriberAndDeviceInformation si = subsService.get(sub.portName());
-        if (si == null) {
-            log.error("Subscriber information not found in sadis for port {}/{} ({})",
-                    sub.device.id(), sub.port.number(), sub.portName());
-            // NOTE that we are returning true so that the subscriber is removed from the queue
-            // and we can move on provisioning others
-            return true;
-        }
 
         // NOTE createMeters will return if the meters are not installed
-        if (!oltMeterService.createMeters(sub.device.id(), si)) {
+        if (!oltMeterService.createMeters(sub.device.id(),
+                                          sub.subscriberAndDeviceInformation)) {
             return false;
         }
 
         // NOTE we need to add the DHCP flow regardless so that the host can be discovered and the MacAddress added
-        handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowOperation.ADD, si);
+        handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowOperation.ADD,
+                                  sub.subscriberAndDeviceInformation);
 
-        if (isMacLearningEnabled(si) && !isMacAddressAvailable(sub.device.id(), sub.port, si)) {
+        if (isMacLearningEnabled(sub.subscriberAndDeviceInformation)
+                && !isMacAddressAvailable(sub.device.id(), sub.port,
+                                          sub.subscriberAndDeviceInformation)) {
             log.debug("Awaiting for macAddress on {}/{} ({})",
                     sub.device.id(), sub.port.number(), sub.portName());
             return false;
         }
 
         // NOTE do we need to do anything for IGMP?
-        handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.ADD, si);
+        handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.ADD,
+                                  sub.subscriberAndDeviceInformation);
 
-        handleSubscriberEapolFlows(sub, FlowOperation.ADD, si);
+        handleSubscriberEapolFlows(sub, FlowOperation.ADD, sub.subscriberAndDeviceInformation);
 
         log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
@@ -583,30 +580,27 @@ public class OltFlowService implements OltFlowServiceInterface {
     public boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
-            }
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
             // NOTE we consider ERROR as a present EAPOL flow as ONOS
             // will keep trying to add it
-            return status.defaultEapolStatus == OltFlowsStatus.ADDED ||
+            return status != null && (status.defaultEapolStatus == OltFlowsStatus.ADDED ||
                     status.defaultEapolStatus == OltFlowsStatus.PENDING_ADD ||
-                    status.defaultEapolStatus == OltFlowsStatus.ERROR;
+                    status.defaultEapolStatus == OltFlowsStatus.ERROR);
         } finally {
             cpStatusReadLock.unlock();
         }
     }
 
+    private OltPortStatus getOltPortStatus(DeviceId deviceId, PortNumber portNumber) {
+        ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
+        return cpStatus.get(cp);
+    }
+
     public boolean isDefaultEapolPendingRemoval(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
-            }
-            return status.defaultEapolStatus == OltFlowsStatus.PENDING_REMOVE;
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
+            return status != null && status.defaultEapolStatus == OltFlowsStatus.PENDING_REMOVE;
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -616,12 +610,10 @@ public class OltFlowService implements OltFlowServiceInterface {
     public boolean hasDhcpFlows(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
-            }
-            return status.dhcpStatus == OltFlowsStatus.ADDED || status.dhcpStatus == OltFlowsStatus.PENDING_ADD;
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
+            return status != null &&
+                    (status.dhcpStatus == OltFlowsStatus.ADDED ||
+                            status.dhcpStatus == OltFlowsStatus.PENDING_ADD);
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -631,14 +623,10 @@ public class OltFlowService implements OltFlowServiceInterface {
     public boolean hasSubscriberFlows(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
-            }
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
 
-            return status.subscriberFlowsStatus == OltFlowsStatus.ADDED ||
-                    status.subscriberFlowsStatus == OltFlowsStatus.PENDING_ADD;
+            return status != null && (status.subscriberFlowsStatus == OltFlowsStatus.ADDED ||
+                    status.subscriberFlowsStatus == OltFlowsStatus.PENDING_ADD);
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -798,20 +786,24 @@ public class OltFlowService implements OltFlowServiceInterface {
         return true;
     }
 
-    private void handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowOperation action,
+    private boolean handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowOperation action,
                                             SubscriberAndDeviceInformation si) {
         if (!enableEapol) {
-            return;
+            return true;
         }
         // TODO verify we need an EAPOL flow for EACH service
+        AtomicBoolean success = new AtomicBoolean(true);
         si.uniTagList().forEach(u -> {
             if (!handleEapolFlow(sub, u.getUpstreamBandwidthProfile(),
                                 u.getUpstreamOltBandwidthProfile(),
                         action, u.getPonCTag())) {
+                //
                 log.error("Failed to install EAPOL with suscriber tags");
+                //TODO this sets it for all services, maybe some services succeeded.
+                success.set(false);
             }
         });
-
+        return success.get();
     }
 
     private boolean checkSadisRunning() {
