@@ -46,6 +46,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
 import java.util.concurrent.ScheduledExecutorService;
+import java.util.concurrent.TimeUnit;
 
 import static com.google.common.base.Strings.isNullOrEmpty;
 import static org.onlab.util.Tools.get;
@@ -123,6 +124,11 @@ public class Olt implements OltService {
     protected ScheduledExecutorService discoveredSubscriberExecutor =
             Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                     "discovered-cp-%d", log));
+
+    protected int queueDelay = 500;
+    protected ScheduledExecutorService queueExecutor =
+            Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
+                    "discovered-cp-restore-%d", log));
 
     /**
      * Executor used to defer flow provisioning to a different thread pool.
@@ -276,7 +282,7 @@ public class Olt implements OltService {
                                 log.trace("Provisioning of subscriber on {}/{} ({}) postponed",
                                           sub.device.id(), sub.port.number(), sub.portName());
                             }
-                            eventsQueue.add(sub);
+                            addBackInQueue(eventsQueue, sub);
                         }
                     });
                 } else {
@@ -299,12 +305,29 @@ public class Olt implements OltService {
                                 log.trace("Processing of port {}/{} postponed",
                                           sub.device.id(), sub.port.number());
                             }
-                            eventsQueue.add(sub);
+                            addBackInQueue(eventsQueue, sub);
                         }
                     });
                 }
             }
         }
+    }
+
+    /**
+     * Adds an event back into the queue after 500 milliseconds.
+     * We add the delay as if something failed it's because some condition is not met yet,
+     * thus there's no reason to immediately retry.
+     *
+     * TODO: the addBackInQueue will have to become smarter and decide wether or not we need to put the subscriber back.
+     * see TST conversation and mailing list discussion titled: OLT App rewrite
+     *
+     * @param queue
+     * @param subscriber
+     */
+    private void addBackInQueue(BlockingQueue queue, DiscoveredSubscriber subscriber) {
+        queueExecutor.schedule(() -> {
+            queue.add(subscriber);
+        }, queueDelay, TimeUnit.MILLISECONDS);
     }
 
 }

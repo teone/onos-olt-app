@@ -15,8 +15,8 @@ import org.onosproject.store.service.StorageServiceAdapter;
 import org.onosproject.store.service.TestStorageService;
 import org.opencord.sadis.SadisService;
 
-import java.util.LinkedList;
-import java.util.List;
+import java.util.HashMap;
+import java.util.Map;
 
 import static org.mockito.Matchers.any;
 import static org.mockito.Mockito.doReturn;
@@ -30,6 +30,8 @@ public class OltMeterServiceTest extends OltTestHelpers {
     OltMeterService oltMeterService;
     OltMeterService component;
 
+    DeviceId deviceId = DeviceId.deviceId("foo");
+
     @Before
     public void setUp() {
         component = new OltMeterService();
@@ -42,6 +44,16 @@ public class OltMeterServiceTest extends OltTestHelpers {
         component.activate(null);
         oltMeterService = Mockito.spy(component);
 
+        // FIXME how do we create a MeterCellId?
+        MeterData meterPending = new MeterData(MeterId.meterId(1), null,
+                MeterState.PENDING_ADD, "pending");
+        MeterData meterAdded = new MeterData(MeterId.meterId(2), null,
+                MeterState.ADDED, DEFAULT_BP_ID_DEFAULT);
+
+        Map<String, MeterData> deviceMeters = new HashMap<>();
+        deviceMeters.put("pending", meterPending);
+        deviceMeters.put(DEFAULT_BP_ID_DEFAULT, meterAdded);
+        oltMeterService.programmedMeters.put(deviceId, deviceMeters);
     }
 
     @After
@@ -51,19 +63,6 @@ public class OltMeterServiceTest extends OltTestHelpers {
 
     @Test
     public void testHasMeter() {
-
-        DeviceId deviceId = DeviceId.deviceId("foo");
-
-        // FIXME how do we create a MeterCellId?
-        MeterData meterPending = new MeterData(MeterId.meterId(1), null,
-                                               MeterState.PENDING_ADD, "pending");
-        MeterData meterAdded = new MeterData(MeterId.meterId(2), null,
-                                             MeterState.ADDED, DEFAULT_BP_ID_DEFAULT);
-        List<MeterData> meters = new LinkedList<>();
-        meters.add(meterPending);
-        meters.add(meterAdded);
-        oltMeterService.programmedMeters.put(deviceId, meters);
-
         assert oltMeterService.hasMeterByBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT);
         assert !oltMeterService.hasMeterByBandwidthProfile(deviceId, "pending");
         assert !oltMeterService.hasMeterByBandwidthProfile(deviceId, "someBandwidthProfile");
@@ -73,16 +72,6 @@ public class OltMeterServiceTest extends OltTestHelpers {
 
     @Test
     public void testGetMeterId() {
-        DeviceId deviceId = DeviceId.deviceId("foo");
-        MeterData meterPending = new MeterData(MeterId.meterId(1), null,
-                                               MeterState.PENDING_ADD, "pending");
-        MeterData meterAdded = new MeterData(MeterId.meterId(2), null,
-                                             MeterState.ADDED, DEFAULT_BP_ID_DEFAULT);
-        List<MeterData> meters = new LinkedList<>();
-        meters.add(meterPending);
-        meters.add(meterAdded);
-        oltMeterService.programmedMeters.put(deviceId, meters);
-
         Assert.assertNull(oltMeterService.getMeterIdForBandwidthProfile(deviceId, "pending"));
         Assert.assertEquals(MeterId.meterId(2),
                 oltMeterService.getMeterIdForBandwidthProfile(deviceId, DEFAULT_BP_ID_DEFAULT));
