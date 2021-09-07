@@ -3,6 +3,7 @@ package org.opencord.olt.impl;
 import org.onosproject.cluster.ClusterService;
 import org.onosproject.cluster.LeadershipService;
 import org.onosproject.mastership.MastershipService;
+import org.onosproject.net.AnnotationKeys;
 import org.onosproject.net.ConnectPoint;
 import org.onosproject.net.Device;
 import org.onosproject.net.DeviceId;
@@ -10,6 +11,8 @@ import org.onosproject.net.Port;
 import org.onosproject.net.device.DeviceEvent;
 import org.onosproject.net.device.DeviceListener;
 import org.onosproject.net.device.DeviceService;
+import org.opencord.sadis.BaseInformationService;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -40,11 +43,14 @@ public class OltDeviceListener implements DeviceListener {
 
     protected ExecutorService portExecutor;
 
+    protected BaseInformationService<SubscriberAndDeviceInformation> subsService;
+
     public OltDeviceListener(ClusterService clusterService, MastershipService mastershipService,
                              LeadershipService leadershipService, DeviceService deviceService,
                              OltDeviceServiceInterface oltDeviceService, OltFlowServiceInterface oltFlowService,
                              OltMeterServiceInterface oltMeterService,
-                             BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue) {
+                             BlockingQueue<DiscoveredSubscriber> discoveredSubscribersQueue,
+                             BaseInformationService<SubscriberAndDeviceInformation> subsService) {
         this.clusterService = clusterService;
         this.mastershipService = mastershipService;
         this.leadershipService = leadershipService;
@@ -53,6 +59,7 @@ public class OltDeviceListener implements DeviceListener {
         this.oltFlowService = oltFlowService;
         this.oltMeterService = oltMeterService;
         this.discoveredSubscribersQueue = discoveredSubscribersQueue;
+        this.subsService = subsService;
         this.portExecutor = Executors.newFixedThreadPool(8,
                 groupedThreads("onos/olt-device-listener",
                         "olt-device-listener-%d"));
@@ -132,8 +139,17 @@ public class OltDeviceListener implements DeviceListener {
                 // NOTE if the subscriber was previously provisioned, then provision it again
                 ConnectPoint cp = new ConnectPoint(device.id(), port.number());
                 Boolean provisionSubscriber = oltFlowService.isSubscriberProvisioned(cp);
-                DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
-                        DiscoveredSubscriber.Status.ADDED, provisionSubscriber);
+                String portName = port.annotations().value(AnnotationKeys.PORT_NAME);
+                SubscriberAndDeviceInformation si = subsService.get(portName);
+                if (si == null) {
+                    //NOTE this should not happen given that the subscriber was provisioned before
+                    log.error("Subscriber information not found in sadis for port {}/{} ({})",
+                              device.id(), port.number(), portName);
+                    return;
+                }
+                DiscoveredSubscriber sub =
+                        new DiscoveredSubscriber(device, port,
+                                                 DiscoveredSubscriber.Status.ADDED, provisionSubscriber, si);
                 if (!discoveredSubscribersQueue.contains(sub)) {
                     log.info("Adding subscriber to queue: {}/{} with status {}",
                             sub.device.id(), sub.port.number(), sub.status);
@@ -148,8 +164,17 @@ public class OltDeviceListener implements DeviceListener {
                 // NOTE we are assuming that if a subscriber has default eapol
                 // it does not have subscriber flows
                 if (oltFlowService.hasDefaultEapol(device.id(), port.number())) {
-                    DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
-                            DiscoveredSubscriber.Status.REMOVED, false);
+                    String portName = port.annotations().value(AnnotationKeys.PORT_NAME);
+                    SubscriberAndDeviceInformation si = subsService.get(portName);
+                    if (si == null) {
+                        //NOTE this should not happen given that the subscriber was provisioned before
+                        log.error("Subscriber information not found in sadis for port {}/{} ({})",
+                                  device.id(), port.number(), portName);
+                        return;
+                    }
+                    DiscoveredSubscriber sub =
+                            new DiscoveredSubscriber(device, port,
+                                                     DiscoveredSubscriber.Status.REMOVED, false, si);
 
                     if (!discoveredSubscribersQueue.contains(sub)) {
                         log.info("Adding subscriber to queue: {}/{} with status {}",
@@ -159,8 +184,17 @@ public class OltDeviceListener implements DeviceListener {
                 } else if (
                         oltFlowService.hasSubscriberFlows(device.id(), port.number()) ||
                                 oltFlowService.hasDhcpFlows(device.id(), port.number())) {
-                    DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
-                            DiscoveredSubscriber.Status.REMOVED, true);
+                    String portName = port.annotations().value(AnnotationKeys.PORT_NAME);
+                    SubscriberAndDeviceInformation si = subsService.get(portName);
+                    if (si == null) {
+                        //NOTE this should not happen given that the subscriber was provisioned before
+                        log.error("Subscriber information not found in sadis for port {}/{} ({})",
+                                  device.id(), port.number(), portName);
+                        return;
+                    }
+                    DiscoveredSubscriber sub =
+                            new DiscoveredSubscriber(device, port,
+                                                     DiscoveredSubscriber.Status.REMOVED, true, si);
                     if (!discoveredSubscribersQueue.contains(sub)) {
                         log.info("Adding provisioned subscriber to queue: {}/{} with status {}",
                                 sub.device.id(), sub.port.number(), sub.status);

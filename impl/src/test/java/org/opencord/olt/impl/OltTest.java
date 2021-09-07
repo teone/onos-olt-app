@@ -33,9 +33,13 @@ import org.onosproject.net.PortNumber;
 import org.onosproject.net.device.DeviceService;
 import org.onosproject.net.provider.ProviderId;
 import org.opencord.sadis.SadisService;
+import org.opencord.sadis.SubscriberAndDeviceInformation;
+import org.opencord.sadis.UniTagInformation;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
+import java.util.LinkedList;
+import java.util.List;
 import java.util.concurrent.BlockingQueue;
 import java.util.concurrent.Executors;
 import java.util.concurrent.LinkedBlockingQueue;
@@ -70,8 +74,8 @@ public class OltTest extends OltTestHelpers {
     private Port uniUpdateEnabled = new OltPort(true, PortNumber.portNumber(16),
                                                 DefaultAnnotations.builder().set(AnnotationKeys.PORT_NAME, "uni-1")
                                                         .build());
-    private DiscoveredSubscriber sub = new DiscoveredSubscriber(testDevice,
-            uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED, false);
+
+    private DiscoveredSubscriber sub;
 
     @Before
     public void setUp() {
@@ -92,6 +96,15 @@ public class OltTest extends OltTestHelpers {
         component.eventsQueue.clear();
 
         component.activate(null);
+        // create empty service for testing
+        List<UniTagInformation> uniTagInformationList = new LinkedList<>();
+        UniTagInformation empty = new UniTagInformation.Builder().build();
+        uniTagInformationList.add(empty);
+        SubscriberAndDeviceInformation si = new SubscriberAndDeviceInformation();
+        si.setUniTagList(uniTagInformationList);
+        sub = new DiscoveredSubscriber(testDevice,
+                                         uniUpdateEnabled, DiscoveredSubscriber.Status.ADDED,
+                                         false, si);
     }
 
     @After

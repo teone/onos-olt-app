@@ -36,4 +36,14 @@ public class OltPortStatus {
     public int hashCode() {
         return Objects.hash(defaultEapolStatus, subscriberFlowsStatus, dhcpStatus);
     }
+
+    @Override
+    public String toString() {
+        final StringBuilder sb = new StringBuilder("OltPortStatus{");
+        sb.append("defaultEapolStatus=").append(defaultEapolStatus);
+        sb.append(", subscriberFlowsStatus=").append(subscriberFlowsStatus);
+        sb.append(", dhcpStatus=").append(dhcpStatus);
+        sb.append('}');
+        return sb.toString();
+    }
 }

@@ -36,7 +36,6 @@ import org.onosproject.net.flow.criteria.EthTypeCriterion;
 import org.onosproject.net.flow.criteria.IPProtocolCriterion;
 import org.onosproject.net.flow.criteria.PortCriterion;
 import org.onosproject.net.flow.criteria.UdpPortCriterion;
-import org.onosproject.net.flow.criteria.VlanIdCriterion;
 import org.onosproject.net.flow.instructions.L2ModificationInstruction;
 import org.onosproject.net.flowobjective.DefaultFilteringObjective;
 import org.onosproject.net.flowobjective.DefaultForwardingObjective;
@@ -445,10 +444,9 @@ public class OltFlowService implements OltFlowServiceInterface {
     private boolean addDefaultFlows(DiscoveredSubscriber sub, String bandwidthProfile, String oltBandwidthProfile) {
 
 
-
         if (!oltMeterService.createMeter(sub.device.id(), bandwidthProfile)) {
             if (log.isTraceEnabled()) {
-                log.trace("waiting on meter");
+                log.trace("waiting on meter for bp {} and sub {}", bandwidthProfile, sub);
             }
             return false;
         }
@@ -506,33 +504,30 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         }
 
-        SubscriberAndDeviceInformation si = subsService.get(sub.portName());
-        if (si == null) {
-            log.error("Subscriber information not found in sadis for port {}/{} ({})",
-                    sub.device.id(), sub.port.number(), sub.portName());
-            // NOTE that we are returning true so that the subscriber is removed from the queue
-            // and we can move on provisioning others
-            return true;
-        }
 
         // NOTE createMeters will return if the meters are not installed
-        if (!oltMeterService.createMeters(sub.device.id(), si)) {
+        if (!oltMeterService.createMeters(sub.device.id(),
+                sub.subscriberAndDeviceInformation)) {
             return false;
         }
 
         // NOTE we need to add the DHCP flow regardless so that the host can be discovered and the MacAddress added
-        handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowOperation.ADD, si);
+        handleSubscriberDhcpFlows(sub.device.id(), sub.port, FlowOperation.ADD,
+                sub.subscriberAndDeviceInformation);
 
-        if (isMacLearningEnabled(si) && !isMacAddressAvailable(sub.device.id(), sub.port, si)) {
+        if (isMacLearningEnabled(sub.subscriberAndDeviceInformation)
+                && !isMacAddressAvailable(sub.device.id(), sub.port,
+                sub.subscriberAndDeviceInformation)) {
             log.debug("Awaiting for macAddress on {}/{} ({})",
                     sub.device.id(), sub.port.number(), sub.portName());
             return false;
         }
 
         // NOTE do we need to do anything for IGMP?
-        handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.ADD, si);
+        handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.ADD,
+                sub.subscriberAndDeviceInformation);
 
-        handleSubscriberEapolFlows(sub, FlowOperation.ADD, si);
+        handleSubscriberEapolFlows(sub, FlowOperation.ADD, sub.subscriberAndDeviceInformation);
 
         log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
@@ -583,30 +578,30 @@ public class OltFlowService implements OltFlowServiceInterface {
     public boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
-            }
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
             // NOTE we consider ERROR as a present EAPOL flow as ONOS
             // will keep trying to add it
-            return status.defaultEapolStatus == OltFlowsStatus.ADDED ||
+            return status != null && (status.defaultEapolStatus == OltFlowsStatus.ADDED ||
                     status.defaultEapolStatus == OltFlowsStatus.PENDING_ADD ||
-                    status.defaultEapolStatus == OltFlowsStatus.ERROR;
+                    status.defaultEapolStatus == OltFlowsStatus.ERROR);
         } finally {
             cpStatusReadLock.unlock();
         }
     }
 
+    private OltPortStatus getOltPortStatus(DeviceId deviceId, PortNumber portNumber) {
+        ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
+        return cpStatus.get(cp);
+    }
+
     public boolean isDefaultEapolPendingRemoval(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
+            if (log.isTraceEnabled()) {
+                log.trace("Status during EAPOL flow check {}", status);
             }
-            return status.defaultEapolStatus == OltFlowsStatus.PENDING_REMOVE;
+            return status != null && status.defaultEapolStatus == OltFlowsStatus.PENDING_REMOVE;
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -616,12 +611,13 @@ public class OltFlowService implements OltFlowServiceInterface {
     public boolean hasDhcpFlows(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
+            if (log.isTraceEnabled()) {
+                log.trace("Status during DHCP flow check {}", status);
             }
-            return status.dhcpStatus == OltFlowsStatus.ADDED || status.dhcpStatus == OltFlowsStatus.PENDING_ADD;
+            return status != null &&
+                    (status.dhcpStatus == OltFlowsStatus.ADDED ||
+                            status.dhcpStatus == OltFlowsStatus.PENDING_ADD);
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -631,14 +627,12 @@ public class OltFlowService implements OltFlowServiceInterface {
     public boolean hasSubscriberFlows(DeviceId deviceId, PortNumber portNumber) {
         try {
             cpStatusReadLock.lock();
-            ConnectPoint cp = new ConnectPoint(deviceId, portNumber);
-            OltPortStatus status = cpStatus.get(cp);
-            if (status == null) {
-                return false;
+            OltPortStatus status = getOltPortStatus(deviceId, portNumber);
+            if (log.isTraceEnabled()) {
+                log.trace("Status during subscriber flow check {}", status);
             }
-
-            return status.subscriberFlowsStatus == OltFlowsStatus.ADDED ||
-                    status.subscriberFlowsStatus == OltFlowsStatus.PENDING_ADD;
+            return status != null && (status.subscriberFlowsStatus == OltFlowsStatus.ADDED ||
+                    status.subscriberFlowsStatus == OltFlowsStatus.PENDING_ADD);
         } finally {
             cpStatusReadLock.unlock();
         }
@@ -712,7 +706,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         // connectpoint status map
         if (vlanId.id().equals(EAPOL_DEFAULT_VLAN)) {
             OltFlowsStatus status = action == FlowOperation.ADD ?
-                                OltFlowsStatus.PENDING_ADD : OltFlowsStatus.PENDING_REMOVE;
+                    OltFlowsStatus.PENDING_ADD : OltFlowsStatus.PENDING_REMOVE;
             updateConnectPointStatus(cp, status, OltFlowsStatus.NONE, OltFlowsStatus.NONE);
 
         }
@@ -798,20 +792,24 @@ public class OltFlowService implements OltFlowServiceInterface {
         return true;
     }
 
-    private void handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowOperation action,
-                                            SubscriberAndDeviceInformation si) {
+    private boolean handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowOperation action,
+                                               SubscriberAndDeviceInformation si) {
         if (!enableEapol) {
-            return;
+            return true;
         }
         // TODO verify we need an EAPOL flow for EACH service
+        AtomicBoolean success = new AtomicBoolean(true);
         si.uniTagList().forEach(u -> {
             if (!handleEapolFlow(sub, u.getUpstreamBandwidthProfile(),
-                                u.getUpstreamOltBandwidthProfile(),
-                        action, u.getPonCTag())) {
+                    u.getUpstreamOltBandwidthProfile(),
+                    action, u.getPonCTag())) {
+                //
                 log.error("Failed to install EAPOL with suscriber tags");
+                //TODO this sets it for all services, maybe some services succeeded.
+                success.set(false);
             }
         });
-
+        return success.get();
     }
 
     private boolean checkSadisRunning() {
@@ -1256,7 +1254,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             annotationBuilder.set(DOWNSTREAM_OLT, downstreamOltMeterId.toString());
         }
 
-        DefaultForwardingObjective.Builder flowBuilder  = createForwardingObjectiveBuilder(selectorBuilder.build(),
+        DefaultForwardingObjective.Builder flowBuilder = createForwardingObjectiveBuilder(selectorBuilder.build(),
                 treatmentBuilder.build(), MIN_PRIORITY, annotationBuilder.build());
 
         ObjectiveContext context = new ObjectiveContext() {
@@ -1283,6 +1281,9 @@ public class OltFlowService implements OltFlowServiceInterface {
         }
 
         if (flow != null) {
+            if (log.isTraceEnabled()) {
+                log.trace("Forwarding rule {}", flow);
+            }
             flowObjectiveService.forward(deviceId, flow);
         }
     }
@@ -1354,12 +1355,14 @@ public class OltFlowService implements OltFlowServiceInterface {
         boolean configureMac = isMacAddressValid(uniTagInfo);
         if (configureMac) {
             return MacAddress.valueOf(uniTagInfo.getConfiguredMacAddress());
-        }
-
-        Optional<Host> optHost = hostService.getConnectedHosts(new ConnectPoint(deviceId, port.number()))
-                .stream().filter(host -> host.vlan().equals(uniTagInfo.getPonCTag())).findFirst();
-        if (optHost.isPresent() && optHost.get().mac() != null) {
-            return optHost.get().mac();
+        } else if (uniTagInfo.getEnableMacLearning()) {
+            //TODO check how can this work on flow creation for TT,
+            // the host is never there before the downstream is created, so this will always be null
+            Optional<Host> optHost = hostService.getConnectedHosts(new ConnectPoint(deviceId, port.number()))
+                    .stream().filter(host -> host.vlan().equals(uniTagInfo.getPonCTag())).findFirst();
+            if (optHost.isPresent() && optHost.get().mac() != null) {
+                return optHost.get().mac();
+            }
         }
         return null;
     }
@@ -1403,8 +1406,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     protected class InternalFlowListener implements FlowRuleListener {
         @Override
         public void event(FlowRuleEvent event) {
-
-            if (!appId.equals(event.subject().appId())) {
+            if (appId.id() != (event.subject().appId())) {
                 return;
             }
 
@@ -1435,14 +1437,15 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         protected void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
             OltFlowsStatus status = flowRuleStatusToOltFlowStatus(type);
+            log.trace("Status to update {}", status);
             if (isDefaultEapolFlow(flowRule)) {
-                log.debug("update defaultEapolStatus {} on cp {}", status, cp);
+                log.trace("update defaultEapolStatus {} on cp {}", status, cp);
                 updateConnectPointStatus(cp, status, null, null);
             } else if (isDhcpFlow(flowRule)) {
-                log.debug("update dhcpStatus {} on cp {}", status, cp);
+                log.trace("update dhcpStatus {} on cp {}", status, cp);
                 updateConnectPointStatus(cp, null, null, status);
             } else if (isDataFlow(flowRule)) {
-                log.debug("update dataplaneStatus {} on cp {}", status, cp);
+                log.trace("update dataplaneStatus {} on cp {}", status, cp);
                 updateConnectPointStatus(cp, null, status, null);
             }
         }
@@ -1472,6 +1475,12 @@ public class OltFlowService implements OltFlowServiceInterface {
             return false;
         }
 
+        /**
+         * Returns true if the flow is a DHCP flow.
+         * Matches both upstream and downstream flows.
+         * @param flowRule The FlowRule to evaluate
+         * @return boolean
+         */
         private boolean isDhcpFlow(FlowRule flowRule) {
             IPProtocolCriterion ipCriterion = (IPProtocolCriterion) flowRule.selector()
                     .getCriterion(Criterion.Type.IP_PROTO);
@@ -1484,19 +1493,20 @@ public class OltFlowService implements OltFlowServiceInterface {
             if (src == null) {
                 return false;
             }
-            return ipCriterion.protocol() == IPv4.PROTOCOL_UDP && src.udpPort().toInt() == 68;
+            return ipCriterion.protocol() == IPv4.PROTOCOL_UDP &&
+                    (src.udpPort().toInt() == 68 || src.udpPort().toInt() == 67);
         }
 
         private boolean isDataFlow(FlowRule flowRule) {
-            // we consider subscriber flows the one that matches on VLAN_VID: 0
+            // we consider subscriber flows the one that matches on VLAN_VID
+            // method is valid only because it's the last check after EAPOL and DHCP.
+            // this matches mcast flows as well, if we want to avoid that we can
+            // filter out the elements that have groups in the treatment or
+            // mcastIp in the selector
+            // IPV4_DST:224.0.0.22/32
+            // treatment=[immediate=[GROUP:0x1]]
 
-            // FIXME this is only true for ATT
-            // could we consider everything that is not multicast as data-flow?
-            VlanIdCriterion c = (VlanIdCriterion) flowRule.selector().getCriterion(Criterion.Type.VLAN_VID);
-            if (c == null) {
-                return false;
-            }
-            return c.vlanId().id() == 0;
+            return flowRule.selector().getCriterion(Criterion.Type.VLAN_VID) != null;
         }
 
         private ConnectPoint getCpFromFlowRule(FlowRule flowRule) {
