@@ -925,7 +925,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                     .getMeterIdForBandwidthProfile(device.id(), uti.getUpstreamOltBandwidthProfile());
             processUpstreamDataFilteringObjects(device.id(), port, nniPort.get(), action, usMeterId,
                     oltUsMeterId, uti.getTechnologyProfileId(), uti.getPonSTag(), uti.getPonCTag(),
-                    uti.getUniTagMatch(), (byte) uti.getUsPonCTagPriority());
+                    uti.getUniTagMatch(), uti.getUsPonCTagPriority());
 
             // downstream flows
             MeterId dsMeterId = oltMeterService
@@ -934,7 +934,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                     .getMeterIdForBandwidthProfile(device.id(), uti.getDownstreamOltBandwidthProfile());
             processDownstreamDataFilteringObjects(device.id(), port, nniPort.get(), action, dsMeterId,
                     oltDsMeterId, uti.getTechnologyProfileId(), uti.getPonSTag(), uti.getPonCTag(),
-                    uti.getUniTagMatch(), (byte) uti.getDsPonCTagPriority(), (byte) uti.getUsPonCTagPriority(),
+                    uti.getUniTagMatch(), uti.getDsPonCTagPriority(), uti.getUsPonCTagPriority(),
                     getMacAddress(device.id(), port, uti));
         });
     }
@@ -1122,7 +1122,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                                                      MeterId upstreamMeterId,
                                                      MeterId upstreamOltMeterId,
                                                      int techProfileId, VlanId sTag,
-                                                     VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
+                                                     VlanId cTag, VlanId unitagMatch, int vlanPcp) {
 
         TrafficSelector selector = DefaultTrafficSelector.builder()
                 .matchInPort(port.number())
@@ -1136,16 +1136,12 @@ public class OltFlowService implements OltFlowServiceInterface {
                     .setVlanId(cTag);
         }
 
-        if (vlanPcp != null) {
-            treatmentBuilder.setVlanPcp(vlanPcp);
+        if (vlanPcp != -1) {
+            treatmentBuilder.setVlanPcp((byte) vlanPcp);
         }
 
         treatmentBuilder.pushVlan()
                 .setVlanId(sTag);
-
-        if (vlanPcp != null) {
-            treatmentBuilder.setVlanPcp(vlanPcp);
-        }
 
         treatmentBuilder.setOutput(nniPort.number())
                 .writeMetadata(createMetadata(cTag,
@@ -1199,7 +1195,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                                                        MeterId downstreamMeterId,
                                                        MeterId downstreamOltMeterId,
                                                        int techProfileId, VlanId sTag,
-                                                       VlanId cTag, VlanId unitagMatch, Byte vlanPcpDs, Byte vlanPcpUs,
+                                                       VlanId cTag, VlanId unitagMatch, int vlanPcpDs, int vlanPcpUs,
                                                        MacAddress macAddress) {
         //subscriberVlan can be any valid Vlan here including ANY to make sure the packet is tagged
         TrafficSelector.Builder selectorBuilder = DefaultTrafficSelector.builder()
@@ -1212,8 +1208,8 @@ public class OltFlowService implements OltFlowServiceInterface {
             selectorBuilder.matchMetadata(cTag.toShort());
         }
 
-        if (vlanPcpDs != null) {
-            selectorBuilder.matchVlanPcp(vlanPcpDs);
+        if (vlanPcpDs != -1) {
+            selectorBuilder.matchVlanPcp((byte) vlanPcpDs);
         }
 
         if (macAddress != null) {
@@ -1233,7 +1229,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         // this is done because ds mode 0 is used because ds mode 3 or 6 that allow for
         // all pbit acceptance are not widely supported by vendors even though present in
         // the OMCI spec.
-        if (vlanPcpUs != null) {
+        if (vlanPcpUs != -1) {
             treatmentBuilder.setVlanPcp((byte) vlanPcpUs);
         }
 
