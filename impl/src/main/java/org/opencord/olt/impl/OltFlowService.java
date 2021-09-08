@@ -955,7 +955,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                     .getMeterIdForBandwidthProfile(device.id(), uti.getUpstreamOltBandwidthProfile());
             processUpstreamDataFilteringObjects(device.id(), port, nniPort.get(), action, usMeterId,
                     oltUsMeterId, uti.getTechnologyProfileId(), uti.getPonSTag(), uti.getPonCTag(),
-                    uti.getUniTagMatch(), uti.getUsPonCTagPriority());
+                    uti.getUniTagMatch(), uti.getUsPonCTagPriority(), uti.getUsPonSTagPriority());
 
             // downstream flows
             MeterId dsMeterId = oltMeterService
@@ -1152,7 +1152,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                                                      MeterId upstreamMeterId,
                                                      MeterId upstreamOltMeterId,
                                                      int techProfileId, VlanId sTag,
-                                                     VlanId cTag, VlanId unitagMatch, int vlanPcp) {
+                                                     VlanId cTag, VlanId unitagMatch, int cTagPcp, int sTagPcp) {
 
         TrafficSelector selector = DefaultTrafficSelector.builder()
                 .matchInPort(port.number())
@@ -1166,12 +1166,16 @@ public class OltFlowService implements OltFlowServiceInterface {
                     .setVlanId(cTag);
         }
 
-        if (vlanPcp != -1) {
-            treatmentBuilder.setVlanPcp((byte) vlanPcp);
+        if (cTagPcp != -1) {
+            treatmentBuilder.setVlanPcp((byte) cTagPcp);
         }
 
         treatmentBuilder.pushVlan()
                 .setVlanId(sTag);
+
+        if (sTagPcp != -1) {
+            treatmentBuilder.setVlanPcp((byte) sTagPcp);
+        }
 
         treatmentBuilder.setOutput(nniPort.number())
                 .writeMetadata(createMetadata(cTag,
