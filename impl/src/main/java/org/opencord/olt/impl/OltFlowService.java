@@ -412,7 +412,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         if (enableIgmpOnNni) {
             log.debug("Installing IGMP flow on NNI {} for device {}", port.number(), device.id());
             processIgmpFilteringObjectives(device.id(), port, action, FlowDirection.DOWNSTREAM,
-                    null, null, NONE_TP_ID, VlanId.NONE, VlanId.ANY, null);
+                    null, null, NONE_TP_ID, VlanId.NONE, VlanId.ANY, -1);
         }
 
         if (enablePppoe) {
@@ -465,20 +465,22 @@ public class OltFlowService implements OltFlowServiceInterface {
     }
 
     @Override
-    public boolean handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) {
+    public boolean handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile,
+                                         String multicastServiceName) {
         // NOTE that we are taking defaultBandwithProfile as a parameter as that can be configured in the Olt component
 
         if (sub.status == DiscoveredSubscriber.Status.ADDED) {
-            return addSubscriberFlows(sub, defaultBandwithProfile);
+            return addSubscriberFlows(sub, defaultBandwithProfile, multicastServiceName);
         } else if (sub.status == DiscoveredSubscriber.Status.REMOVED) {
-            return removeSubscriberFlows(sub, defaultBandwithProfile);
+            return removeSubscriberFlows(sub, defaultBandwithProfile, multicastServiceName);
         } else {
             log.error("don't know how to handle {}", sub);
             return false;
         }
     }
 
-    private boolean addSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) {
+    private boolean addSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile,
+                                       String multicastServiceName) {
         if (log.isTraceEnabled()) {
             log.trace("Provisioning of subscriber on {}/{} ({}) started",
                     sub.device.id(), sub.port.number(), sub.portName());
@@ -523,18 +525,20 @@ public class OltFlowService implements OltFlowServiceInterface {
             return false;
         }
 
-        // NOTE do we need to do anything for IGMP?
         handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.ADD,
-                sub.subscriberAndDeviceInformation);
+                sub.subscriberAndDeviceInformation, multicastServiceName);
 
         handleSubscriberEapolFlows(sub, FlowOperation.ADD, sub.subscriberAndDeviceInformation);
+
+        handleSubscriberIgmpFlows(sub, FlowOperation.ADD);
 
         log.info("Provisioning of subscriber on {}/{} ({}) completed",
                 sub.device.id(), sub.port.number(), sub.portName());
         return true;
     }
 
-    private boolean removeSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile) {
+    private boolean removeSubscriberFlows(DiscoveredSubscriber sub, String defaultBandwithProfile,
+                                          String multicastServiceName) {
 
         if (log.isTraceEnabled()) {
             log.trace("Removal of subscriber on {}/{} ({}) started",
@@ -566,7 +570,7 @@ public class OltFlowService implements OltFlowServiceInterface {
                             FlowOperation.ADD, VlanId.vlanId(EAPOL_DEFAULT_VLAN));
                 }
             }
-            handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.REMOVE, si);
+            handleSubscriberDataFlows(sub.device, sub.port, FlowOperation.REMOVE, si, multicastServiceName);
         }
 
         log.info("Removal of subscriber on {}/{} ({}) completed",
@@ -664,7 +668,7 @@ public class OltFlowService implements OltFlowServiceInterface {
             while (iter.hasNext()) {
                 Map.Entry<ConnectPoint, Boolean> entry = iter.next();
                 if (entry.getKey().deviceId().equals(deviceId)) {
-                    log.info("TEO processing subscriber {} for removal for device {}", entry.getKey(), deviceId);
+                    log.info("processing subscriber {} for removal for device {}", entry.getKey(), deviceId);
                     provisionedSubscribers.remove(entry.getKey());
                 }
             }
@@ -792,6 +796,7 @@ public class OltFlowService implements OltFlowServiceInterface {
         return true;
     }
 
+    // FIXME it's confusing that si is not necessarily inside the DiscoveredSubscriber
     private boolean handleSubscriberEapolFlows(DiscoveredSubscriber sub, FlowOperation action,
                                                SubscriberAndDeviceInformation si) {
         if (!enableEapol) {
@@ -810,6 +815,23 @@ public class OltFlowService implements OltFlowServiceInterface {
             }
         });
         return success.get();
+    }
+
+    private void handleSubscriberIgmpFlows(DiscoveredSubscriber sub, FlowOperation action) {
+        sub.subscriberAndDeviceInformation.uniTagList().forEach(uti -> {
+            if (uti.getIsIgmpRequired()) {
+                DeviceId deviceId = sub.device.id();
+                // if we reached here a meter already exists
+                MeterId meterId = oltMeterService
+                        .getMeterIdForBandwidthProfile(deviceId, uti.getUpstreamBandwidthProfile());
+                MeterId oltMeterId = oltMeterService
+                        .getMeterIdForBandwidthProfile(deviceId, uti.getUpstreamOltBandwidthProfile());
+
+                processIgmpFilteringObjectives(deviceId, sub.port,
+                        action, FlowDirection.UPSTREAM, meterId, oltMeterId, uti.getTechnologyProfileId(),
+                        uti.getPonCTag(), uti.getUniTagMatch(), uti.getUsPonCTagPriority());
+            }
+        });
     }
 
     private boolean checkSadisRunning() {
@@ -906,7 +928,7 @@ public class OltFlowService implements OltFlowServiceInterface {
 
     protected void handleSubscriberDataFlows(Device device, Port port,
                                              FlowOperation action,
-                                             SubscriberAndDeviceInformation si) {
+                                             SubscriberAndDeviceInformation si, String multicastServiceName) {
 
         Optional<Port> nniPort = oltDeviceService.getNniPort(device);
         if (nniPort.isEmpty()) {
@@ -915,6 +937,14 @@ public class OltFlowService implements OltFlowServiceInterface {
             return;
         }
         si.uniTagList().forEach(uti -> {
+
+            if (multicastServiceName.equals(uti.getServiceName())) {
+                log.debug("This is the multicast service ({}) for subscriber {} on {}/{}, " +
+                                "dataplane flows are not needed",
+                        uti.getServiceName(), si.id(), device.id(), port.number());
+                return;
+            }
+
             log.info("{} Data plane flows for subscriber {} on {}/{} and service {}",
                     action, si.id(), device.id(), port.number(), uti.getServiceName());
 
@@ -1011,7 +1041,7 @@ public class OltFlowService implements OltFlowServiceInterface {
     private void processIgmpFilteringObjectives(DeviceId deviceId, Port port,
                                                 FlowOperation action, FlowDirection direction,
                                                 MeterId meterId, MeterId oltMeterId, int techProfileId,
-                                                VlanId cTag, VlanId unitagMatch, Byte vlanPcp) {
+                                                VlanId cTag, VlanId unitagMatch, int vlanPcp) {
 
         DefaultFilteringObjective.Builder filterBuilder = DefaultFilteringObjective.builder();
         TrafficTreatment.Builder treatmentBuilder = DefaultTrafficTreatment.builder();
@@ -1035,8 +1065,8 @@ public class OltFlowService implements OltFlowServiceInterface {
                 treatmentBuilder.setVlanId(cTag);
             }
 
-            if (vlanPcp != null) {
-                treatmentBuilder.setVlanPcp(vlanPcp);
+            if (vlanPcp != -1) {
+                treatmentBuilder.setVlanPcp((byte) vlanPcp);
             }
         }
 
@@ -1433,15 +1463,20 @@ public class OltFlowService implements OltFlowServiceInterface {
 
         protected void updateCpStatus(FlowRuleEvent.Type type, ConnectPoint cp, FlowRule flowRule) {
             OltFlowsStatus status = flowRuleStatusToOltFlowStatus(type);
-            log.trace("Status to update {}", status);
             if (isDefaultEapolFlow(flowRule)) {
-                log.trace("update defaultEapolStatus {} on cp {}", status, cp);
+                if (log.isTraceEnabled()) {
+                    log.trace("update defaultEapolStatus {} on cp {}", status, cp);
+                }
                 updateConnectPointStatus(cp, status, null, null);
             } else if (isDhcpFlow(flowRule)) {
-                log.trace("update dhcpStatus {} on cp {}", status, cp);
+                if (log.isTraceEnabled()) {
+                    log.trace("update dhcpStatus {} on cp {}", status, cp);
+                }
                 updateConnectPointStatus(cp, null, null, status);
             } else if (isDataFlow(flowRule)) {
-                log.trace("update dataplaneStatus {} on cp {}", status, cp);
+                if (log.isTraceEnabled()) {
+                    log.trace("update dataplaneStatus {} on cp {}", status, cp);
+                }
                 updateConnectPointStatus(cp, null, status, null);
             }
         }

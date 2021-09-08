@@ -424,7 +424,7 @@ public class Olt implements OltService {
                 if (sub.hasSubscriber) {
                     // this is a provision subscriber call
                     flowsExecutor.execute(() -> {
-                        if (!oltFlowService.handleSubscriberFlows(sub, defaultBpId)) {
+                        if (!oltFlowService.handleSubscriberFlows(sub, defaultBpId, multicastServiceName)) {
                             if (log.isTraceEnabled()) {
                                 log.trace("Provisioning of subscriber on {}/{} ({}) postponed",
                                           sub.device.id(), sub.port.number(), sub.portName());
