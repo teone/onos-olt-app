@@ -15,7 +15,7 @@ public interface OltFlowServiceInterface {
     boolean handleBasicPortFlows(
             DiscoveredSubscriber sub, String defaultBpId, String oltBandwidthProfile);
 
-    boolean handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBpId);
+    boolean handleSubscriberFlows(DiscoveredSubscriber sub, String defaultBpId, String multicastServiceName);
     void handleNniFlows(Device device, Port port, OltFlowService.FlowOperation action);
 
     boolean hasDefaultEapol(DeviceId deviceId, PortNumber portNumber);
