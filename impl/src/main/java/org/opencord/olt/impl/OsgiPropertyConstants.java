@@ -63,6 +63,12 @@ public final class OsgiPropertyConstants {
     public static final String FLOW_PROCESSING_THREADS = "flowProcessingThreads";
     public static final int FLOW_PROCESSING_THREADS_DEFAULT = 8;
 
+    public static final String SUBSCRIBER_PROCESSING_THREADS = "subscriberProcessingThreads";
+    public static final int SUBSCRIBER_PROCESSING_THREADS_DEFAULT = 8;
+
+    public static final String REQUEUE_DELAY = "requeueDelay";
+    public static final int REQUEUE_DELAY_DEFAULT = 500;
+
     public static final String UPSTREAM_ONU = "upstreamOnu";
     public static final String UPSTREAM_OLT = "upstreamOlt";
     public static final String DOWNSTREAM_ONU = "downstreamOnu";
