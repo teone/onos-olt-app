@@ -123,8 +123,7 @@ public class Olt implements OltService {
     protected int subscriberProcessingThreads = SUBSCRIBER_PROCESSING_THREADS_DEFAULT;
 
     /**
-     * Delay in ms to put an event back in the queue,
-     * used to avoid retrying things to often if conditions are not met.
+     * Delay in ms to put an event back in the queue, used to avoid retrying things to often if conditions are not met.
      **/
     protected int requeueDelay = REQUEUE_DELAY_DEFAULT;
 
