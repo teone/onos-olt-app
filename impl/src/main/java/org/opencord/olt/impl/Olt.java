@@ -67,6 +67,8 @@ import static org.opencord.olt.impl.OsgiPropertyConstants.*;
                 DEFAULT_BP_ID + ":String=" + DEFAULT_BP_ID_DEFAULT,
                 DEFAULT_MCAST_SERVICE_NAME + ":String=" + DEFAULT_MCAST_SERVICE_NAME_DEFAULT,
                 FLOW_PROCESSING_THREADS + ":Integer=" + FLOW_PROCESSING_THREADS_DEFAULT,
+                SUBSCRIBER_PROCESSING_THREADS + ":Integer=" + SUBSCRIBER_PROCESSING_THREADS_DEFAULT,
+                REQUEUE_DELAY + ":Integer=" + REQUEUE_DELAY_DEFAULT
         })
 public class Olt implements OltService {
 
@@ -106,14 +108,25 @@ public class Olt implements OltService {
     protected String defaultBpId = DEFAULT_BP_ID_DEFAULT;
 
     /**
+     * Default multicast service name.
+     **/
+    protected String multicastServiceName = DEFAULT_MCAST_SERVICE_NAME_DEFAULT;
+
+    /**
      * Number of threads used to process flows.
      **/
     protected int flowProcessingThreads = FLOW_PROCESSING_THREADS_DEFAULT;
 
     /**
-     * Default multicast service name.
+     * Number of threads used to process flows.
      **/
-    protected String multicastServiceName = DEFAULT_MCAST_SERVICE_NAME_DEFAULT;
+    protected int subscriberProcessingThreads = SUBSCRIBER_PROCESSING_THREADS_DEFAULT;
+
+    /**
+     * Delay in ms to put an event back in the queue,
+     * used to avoid retrying things to often if conditions are not met.
+     **/
+    protected int requeueDelay = REQUEUE_DELAY_DEFAULT;
 
     private final Logger log = LoggerFactory.getLogger(getClass());
 
@@ -133,7 +146,6 @@ public class Olt implements OltService {
             Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                     "discovered-cp-%d", log));
 
-    protected int queueDelay = 500;
     protected ScheduledExecutorService queueExecutor =
             Executors.newSingleThreadScheduledExecutor(groupedThreads("onos/olt",
                     "discovered-cp-restore-%d", log));
@@ -142,6 +154,11 @@ public class Olt implements OltService {
      * Executor used to defer flow provisioning to a different thread pool.
      */
     private ExecutorService flowsExecutor;
+
+    /**
+     * Executor used to defer subscriber handling from API call to a different thread pool.
+     */
+    private ExecutorService subscriberExecutor;
 
     @Activate
     protected void activate(ComponentContext context) {
@@ -157,6 +174,10 @@ public class Olt implements OltService {
         flowsExecutor = Executors.newFixedThreadPool(flowProcessingThreads,
                                                      groupedThreads("onos/olt-service",
                         "flows-installer-%d"));
+
+        subscriberExecutor = Executors.newFixedThreadPool(subscriberProcessingThreads,
+                                                     groupedThreads("onos/olt-service",
+                                                                    "flows-installer-%d"));
 
         log.info("Started");
     }
@@ -181,102 +202,120 @@ public class Olt implements OltService {
             String mcastSN = get(properties, DEFAULT_MCAST_SERVICE_NAME);
             multicastServiceName = isNullOrEmpty(mcastSN) ? multicastServiceName : mcastSN;
 
-            String tpId = get(properties, FLOW_PROCESSING_THREADS);
-            flowProcessingThreads = isNullOrEmpty(tpId) ?
-                    FLOW_PROCESSING_THREADS_DEFAULT : Integer.parseInt(tpId.trim());
+            String flowThreads = get(properties, FLOW_PROCESSING_THREADS);
+            flowProcessingThreads = isNullOrEmpty(flowThreads) ?
+                    FLOW_PROCESSING_THREADS_DEFAULT : Integer.parseInt(flowThreads.trim());
+
+            String subscriberThreads = get(properties, SUBSCRIBER_PROCESSING_THREADS);
+            subscriberProcessingThreads = isNullOrEmpty(subscriberThreads) ?
+                    SUBSCRIBER_PROCESSING_THREADS_DEFAULT : Integer.parseInt(subscriberThreads.trim());
+
+            String queueDelay = get(properties, REQUEUE_DELAY);
+            requeueDelay = isNullOrEmpty(queueDelay) ?
+                    REQUEUE_DELAY_DEFAULT : Integer.parseInt(queueDelay.trim());
         }
         log.info("Modified. Values = {}: {}, {}: {}, " +
-                         "{}:{}",
+                         "{}:{}, {}:{}, {}:{}",
                  DEFAULT_BP_ID, defaultBpId,
                  DEFAULT_MCAST_SERVICE_NAME, multicastServiceName,
-                 FLOW_PROCESSING_THREADS, flowProcessingThreads);
+                 FLOW_PROCESSING_THREADS, flowProcessingThreads,
+                 SUBSCRIBER_PROCESSING_THREADS, subscriberProcessingThreads,
+                 REQUEUE_DELAY, requeueDelay);
     }
 
 
     @Override
     public boolean provisionSubscriber(ConnectPoint cp) {
-        log.debug("Provisioning subscriber on {}", cp);
-        Device device = deviceService.getDevice(cp.deviceId());
-        Port port = deviceStore.getPort(device.id(), cp.port());
+        subscriberExecutor.submit(() -> {
+            log.debug("Provisioning subscriber on {}", cp);
+            Device device = deviceService.getDevice(cp.deviceId());
+            Port port = deviceStore.getPort(device.id(), cp.port());
 
-        if (oltDeviceService.isNniPort(device, port)) {
-            log.warn("will not provision a subscriber on the NNI");
-            return false;
-        }
+            if (oltDeviceService.isNniPort(device, port)) {
+                log.warn("will not provision a subscriber on the NNI");
+                return false;
+            }
 
-        if (oltFlowService.isSubscriberProvisioned(cp)) {
-            log.error("Subscriber on {} is already provisioned", cp);
-            return false;
-        }
+            if (oltFlowService.isSubscriberProvisioned(cp)) {
+                log.error("Subscriber on {} is already provisioned", cp);
+                return false;
+            }
 
-        String portName = port.annotations().value(AnnotationKeys.PORT_NAME);
-        SubscriberAndDeviceInformation si = subsService.get(portName);
-        if (si == null) {
-            log.error("Subscriber information not found in sadis for port {}/{} ({})",
-                      device.id(), port.number(), portName);
-            return false;
-        }
-        DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
-                DiscoveredSubscriber.Status.ADDED, true, si);
+            String portName = port.annotations().value(AnnotationKeys.PORT_NAME);
+            SubscriberAndDeviceInformation si = subsService.get(portName);
+            if (si == null) {
+                log.error("Subscriber information not found in sadis for port {}/{} ({})",
+                          device.id(), port.number(), portName);
+                return false;
+            }
+            DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                                                                DiscoveredSubscriber.Status.ADDED, true, si);
 
-        // NOTE we need to keep a list of the subscribers that are provisioned on a port,
-        // regardless of the flow status
-        oltFlowService.updateProvisionedSubscriberStatus(cp, true);
+            // NOTE we need to keep a list of the subscribers that are provisioned on a port,
+            // regardless of the flow status
+            oltFlowService.updateProvisionedSubscriberStatus(cp, true);
 
-        if (!eventsQueue.contains(sub)) {
-            log.info("Adding subscriber to queue: {}/{} with status {} for provisioning",
-                    sub.device.id(), sub.port.number(), sub.status);
-            eventsQueue.add(sub);
-            return true;
-        } else {
-            log.debug("Subscriber queue already contains subscriber {}, " +
-                              "not adding for provisioning", sub);
-            return false;
-        }
+            if (!eventsQueue.contains(sub)) {
+                log.info("Adding subscriber to queue: {}/{} with status {} for provisioning",
+                         sub.device.id(), sub.port.number(), sub.status);
+                eventsQueue.add(sub);
+                return true;
+            } else {
+                log.debug("Subscriber queue already contains subscriber {}, " +
+                                  "not adding for provisioning", sub);
+                return false;
+            }
+        });
+        //NOTE this only means we have taken the request in, nothing more.
+        return true;
     }
 
     @Override
     public boolean removeSubscriber(ConnectPoint cp) {
-        log.debug("Un-provisioning subscriber on {}", cp);
-        Device device = deviceService.getDevice(DeviceId.deviceId(cp.deviceId().toString()));
-        Port port = deviceStore.getPort(device.id(), cp.port());
+        subscriberExecutor.submit(() -> {
+            log.debug("Un-provisioning subscriber on {}", cp);
+            Device device = deviceService.getDevice(DeviceId.deviceId(cp.deviceId().toString()));
+            Port port = deviceStore.getPort(device.id(), cp.port());
 
-        if (oltDeviceService.isNniPort(device, port)) {
-            log.warn("will not un-provision a subscriber on the NNI");
-            return false;
-        }
+            if (oltDeviceService.isNniPort(device, port)) {
+                log.warn("will not un-provision a subscriber on the NNI");
+                return false;
+            }
 
-        if (!oltFlowService.isSubscriberProvisioned(cp)) {
-            log.error("Subscriber on {} is not provisioned", cp);
-            return false;
-        }
+            if (!oltFlowService.isSubscriberProvisioned(cp)) {
+                log.error("Subscriber on {} is not provisioned", cp);
+                return false;
+            }
 
-        String portName = port.annotations().value(AnnotationKeys.PORT_NAME);
-        SubscriberAndDeviceInformation si = subsService.get(portName);
-        if (si == null) {
-            log.error("Subscriber information not found in sadis for port {}/{} ({})",
-                      device.id(), port.number(), portName);
-            // NOTE that we are returning true so that the subscriber is removed from the queue
-            // and we can move on provisioning others
-            return false;
-        }
-        DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
-                                                            DiscoveredSubscriber.Status.REMOVED, true, si);
+            String portName = port.annotations().value(AnnotationKeys.PORT_NAME);
+            SubscriberAndDeviceInformation si = subsService.get(portName);
+            if (si == null) {
+                log.error("Subscriber information not found in sadis for port {}/{} ({})",
+                          device.id(), port.number(), portName);
+                // NOTE that we are returning true so that the subscriber is removed from the queue
+                // and we can move on provisioning others
+                return false;
+            }
+            DiscoveredSubscriber sub = new DiscoveredSubscriber(device, port,
+                                                                DiscoveredSubscriber.Status.REMOVED, true, si);
 
-        // NOTE we need to keep a list of the subscribers that are provisioned on a port,
-        // regardless of the flow status
-        oltFlowService.updateProvisionedSubscriberStatus(cp, false);
+            // NOTE we need to keep a list of the subscribers that are provisioned on a port,
+            // regardless of the flow status
+            oltFlowService.updateProvisionedSubscriberStatus(cp, false);
 
-        if (!eventsQueue.contains(sub)) {
-            log.info("Adding subscriber to queue: {}/{} with status {} for removal",
-                    sub.device.id(), sub.port.number(), sub.status);
-            eventsQueue.add(sub);
-            return true;
-        } else {
-            log.debug("Subscriber Queue already contains subscriber {}, " +
-                              "not adding for removal", sub);
-            return false;
-        }
+            if (!eventsQueue.contains(sub)) {
+                log.info("Adding subscriber to queue: {}/{} with status {} for removal",
+                         sub.device.id(), sub.port.number(), sub.status);
+                eventsQueue.add(sub);
+                return true;
+            } else {
+                log.debug("Subscriber Queue already contains subscriber {}, " +
+                                  "not adding for removal", sub);
+                return false;
+            }
+        });
+        //NOTE this only means we have taken the request in, nothing more.
+        return true;
     }
 
     @Override
@@ -474,7 +513,7 @@ public class Olt implements OltService {
     private void addBackInQueue(BlockingQueue queue, DiscoveredSubscriber subscriber) {
         queueExecutor.schedule(() -> {
             queue.add(subscriber);
-        }, queueDelay, TimeUnit.MILLISECONDS);
+        }, requeueDelay, TimeUnit.MILLISECONDS);
     }
 
     /**
